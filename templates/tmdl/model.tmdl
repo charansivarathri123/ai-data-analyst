@@ -1,0 +1,11 @@
+model Model
+	compatibilityLevel: 1567
+	culture: en-US
+	defaultPowerBIDataSourceVersion: powerBI_V3
+
+annotation __PBI_TimeIntelligenceEnabled = 1
+annotation PBIDesktopVersion = 2.138.1004.0 (24.11)
+annotation PBI_QueryOrder = ["FactData"]
+
+ref table FactData
+ref table DateTableTemplate

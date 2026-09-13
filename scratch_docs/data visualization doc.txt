@@ -1,0 +1,674 @@
+Build a complete, production-quality Data Visualization & Dashboard module for a Data Analyst application.
+The purpose of this module is to transform analyzed data into clear, interactive, accurate, and business-ready visualizations.
+The module must support automatic chart recommendations, manual chart creation, interactive filtering, dashboard creation, KPI cards, drill-downs, exports, and AI-assisted insight generation.
+Do not create a simple chart demo. Build a professional Data Analyst visualization system.
+1. INPUT DATA
+Accept data from:
+Data Cleaning module
+Data Transformation module
+SQL Analysis module
+EDA module
+Statistical Analysis module
+CSV
+Excel
+DataFrame
+SQL query result
+Never modify the source dataset.
+Maintain:
+Source dataset
+Visualization configuration
+Dashboard configuration
+Filters
+Chart metadata
+2. DATASET PROFILING FOR VISUALIZATION
+When a dataset is loaded, automatically detect:
+Numerical columns
+Categorical columns
+Date columns
+Boolean columns
+Identifier columns
+Geographic columns
+Percentage columns
+Currency columns
+Measure columns
+Dimension columns
+For each column identify:
+Data type
+Unique values
+Missing values
+Cardinality
+Minimum
+Maximum
+Mean
+Median
+Use this information to recommend appropriate visualizations.
+3. AUTOMATIC VISUALIZATION RECOMMENDATION
+Build an intelligent chart recommendation engine.
+Given selected columns, automatically recommend the most appropriate chart.
+Examples:
+Date + Sales→ Line Chart
+Category + Sales→ Bar Chart
+Region + Sales→ Bar Chart
+Sales + Profit→ Scatter Plot
+Category + Percentage→ Donut/Pie where appropriate
+Multiple numerical variables→ Correlation Heatmap
+Distribution of Sales→ Histogram
+Numerical value by Category→ Box Plot
+Time + Multiple Metrics→ Multi-series Line Chart
+The recommendation engine must explain:
+Why the chart was selected
+What business question it answers
+What columns are being used
+Never recommend a chart only because it is visually attractive.
+4. SUPPORTED CHART TYPES
+Implement at minimum:
+Comparison
+Bar chart
+Horizontal bar chart
+Grouped bar chart
+Stacked bar chart
+Trend
+Line chart
+Area chart
+Distribution
+Histogram
+Box plot
+Violin plot where supported
+Relationship
+Scatter plot
+Bubble chart where appropriate
+Composition
+Pie chart
+Donut chart
+100% stacked bar
+Correlation
+Correlation heatmap
+Time Series
+Line chart
+Area chart
+Rolling-average chart
+KPI
+KPI card
+Gauge where appropriate
+Geographic
+Map
+Filled map
+Symbol map
+Use geographic visualization only when valid geographic information exists.
+Do not fabricate geographic coordinates.
+5. CHART BUILDER
+Create an interactive chart builder.
+Inputs:
+X-axisY-axisColor / LegendSizeFilterAggregationSortLimit
+Allow aggregation:
+SUM
+AVG
+COUNT
+COUNT DISTINCT
+MIN
+MAX
+MEDIAN
+Example:
+X-axis:Product Category
+Y-axis:Sales
+Aggregation:SUM
+Result:
+Sales by Product Category
+6. DRAG-AND-DROP VISUALIZATION BUILDER
+Create a visual interface where users can select or drag fields into:
+X-axis
+Y-axis
+Legend
+Color
+Size
+Tooltip
+Filter
+Automatically update the visualization.
+Validate incompatible field combinations.
+Example:
+Do not allow a raw text column to be used as a numerical Y-axis without transformation.
+7. SMART AGGREGATION
+Automatically determine reasonable aggregation.
+Example:
+Sales → SUM
+Customer ID → COUNT DISTINCT
+Product → COUNT
+Rating → AVG
+Allow the user to override the automatic aggregation.
+8. BAR CHARTS
+Support:
+Vertical bars
+Horizontal bars
+Grouped bars
+Stacked bars
+100% stacked bars
+Features:
+Sorting
+Top N
+Bottom N
+Data labels
+Tooltips
+Filtering
+For many categories automatically prefer horizontal bars for readability.
+9. LINE CHARTS
+Support:
+Daily trends
+Weekly trends
+Monthly trends
+Quarterly trends
+Yearly trends
+Features:
+Multiple series
+Data points
+Tooltips
+Zoom
+Date range
+Rolling average
+Comparison periods
+Never treat an ordered time series as unordered categories.
+10. SCATTER PLOT
+Support:
+X-axis:Numerical
+Y-axis:Numerical
+Optional:
+Color:Category
+Size:Numerical
+Tooltip:Additional fields
+Calculate:
+Correlation
+Trend
+Outliers
+Display an optional trend line.
+Clearly explain that a trend/correlation does not establish causation.
+11. HISTOGRAM
+Allow:
+Automatic bins
+Custom bin count
+Custom bin width
+Display:
+Distribution
+Mean
+Median
+Outliers where appropriate
+Allow comparison between groups.
+12. BOX PLOT
+Support:
+Category vs Numerical
+Example:
+Department vs Salary
+Display:
+Median
+Quartiles
+IQR
+Whiskers
+Potential outliers
+Allow grouping and filtering.
+13. PIE / DONUT CHART
+Use only when:
+Showing part-to-whole composition
+Small number of categories
+Categories represent a meaningful total
+Automatically warn when:
+Too many categories
+Categories do not represent a meaningful whole
+Exact comparisons are more important
+Recommend a bar chart as an alternative when appropriate.
+14. HEATMAP
+Support:
+Correlation heatmap
+Category × category matrix
+Date × category intensity
+For correlation heatmaps:
+Calculate appropriate correlation coefficients.
+Clearly distinguish correlation from causation.
+15. KPI CARDS
+Create KPI cards for important business metrics.
+Examples:
+Total RevenueTotal ProfitTotal OrdersTotal CustomersAverage Order ValueConversion RateProfit MarginGrowth %
+Each KPI should support:
+Current value
+Previous period
+Absolute change
+Percentage change
+Trend indicator
+Example:
+Revenue
+₹52.4M
+↑ 12.4%
+vs previous month
+16. KPI CONFIGURATION
+Allow users to define:
+MetricAggregationFilterComparison period
+Example:
+Metric:Sales
+Aggregation:SUM
+Comparison:Previous Month
+Formula:
+Growth % =(Current - Previous) / Previous × 100
+Avoid division-by-zero errors.
+17. TOP-N ANALYSIS
+Allow:
+Top 5Top 10Top 20
+and:
+Bottom 5Bottom 10Bottom 20
+Example:
+Top 10 Products by Revenue
+Allow dynamic Top-N parameter.
+18. FILTERING
+Support:
+Date filters
+Category filters
+Numeric range filters
+Region filters
+Product filters
+Customer filters
+Filter types:
+Dropdown
+Multi-select
+Search
+Slider
+Date range
+All connected charts should update automatically.
+19. CROSS-FILTERING
+When a user selects a chart element:
+Example:
+Click "Electronics"
+Automatically filter other compatible charts to Electronics.
+Provide:
+Cross-filter
+Clear filter
+Reset all filters
+Make the filtering behavior visually obvious.
+20. DRILL-DOWN
+Support hierarchical analysis.
+Example:
+Year↓Quarter↓Month↓Day
+Geography:
+Country↓State↓City
+Product:
+Category↓Subcategory↓Product
+Allow users to drill down and drill back up.
+21. TOOLTIP SYSTEM
+Every visualization should provide useful tooltips.
+Example:
+Product:Laptop
+Sales:₹2,450,000
+Profit:₹420,000
+Margin:17.1%
+Avoid overwhelming users with unnecessary fields.
+22. SORTING
+Allow:
+AscendingDescendingAlphabeticalBy valueBy rank
+Example:
+Sort products by:
+Revenue ↓
+23. DATA LABELS
+Allow users to toggle:
+Show labels
+Hide labels
+Percentage labels
+Value labels
+Automatically hide labels when too many categories make the chart unreadable.
+24. COLOR AND THEMING
+Provide professional visualization themes.
+Allow:
+Light theme
+Dark theme
+Custom theme
+Accessibility-friendly theme
+Use consistent colors across a dashboard.
+Example:
+Revenue should maintain the same visual identity across charts.
+Do not use excessive colors.
+25. ACCESSIBILITY
+Support:
+Color-blind-friendly palettes
+Sufficient contrast
+Readable fonts
+Keyboard navigation where possible
+Descriptive chart titles
+Alternative textual summaries
+Do not rely only on color to communicate meaning.
+26. CHART TITLES
+Generate meaningful titles automatically.
+Bad:
+"Sales Chart"
+Good:
+"Monthly Revenue Increased 18% in Q3"
+However, only generate conclusions in titles when they are actually supported by the data.
+Otherwise use:
+"Monthly Revenue Trend"
+27. AXIS CONFIGURATION
+Allow:
+Axis titles
+Number formatting
+Currency formatting
+Percentage formatting
+Decimal precision
+Min/max ranges
+Tick configuration
+Examples:
+₹1.2M
+45.6%
+1,250
+Avoid misleading axis scaling.
+28. DATA FORMATTING
+Support:
+Currency:
+₹1,250,000
+Percentage:
+25.6%
+Large numbers:
+1.25M
+Counts:
+125,000
+Allow user-defined formatting.
+Preserve the underlying numeric values.
+29. TIME-SERIES CONTROLS
+Support:
+Date hierarchy
+Date range
+Granularity
+Rolling average
+YoY comparison
+MoM comparison
+QoQ comparison
+Example:
+Revenue:
+2025 vs 2026
+Display both lines for comparison.
+30. TREND ANALYSIS
+For time series calculate where appropriate:
+Absolute change
+Percentage change
+Moving average
+Growth rate
+CAGR where appropriate
+Clearly label derived metrics.
+Do not infer causality from trends.
+31. ANOMALY HIGHLIGHTING
+Allow charts to highlight:
+Extreme values
+Sudden spikes
+Sudden drops
+Missing periods
+Potential anomalies
+Example:
+Revenue dropped 32% in March.
+Highlight the point and allow the user to inspect the underlying records.
+Do not automatically classify every unusual observation as an error.
+32. STATISTICAL OVERLAYS
+Where useful allow:
+Mean line
+Median line
+Trend line
+Confidence interval
+Moving average
+Clearly label each statistical overlay.
+33. DASHBOARD BUILDER
+Create a professional dashboard canvas.
+Allow:
+Add chart
+Move chart
+Resize chart
+Delete chart
+Duplicate chart
+Rename chart
+Add text
+Add KPI
+Add filters
+Support grid-based layout.
+34. DASHBOARD DESIGN
+A typical dashboard structure:
+┌──────────────────────────────────────────┐│ Dashboard Title + Date Filter │├──────────┬──────────┬──────────┬─────────┤│ Revenue │ Profit │ Orders │ Customers│├─────────────────────┬────────────────────┤│ Revenue Trend │ Sales by Region │├─────────────────────┼────────────────────┤│ Category Performance│ Top Products │├─────────────────────┴────────────────────┤│ Detailed Analysis Table │└──────────────────────────────────────────┘
+Use visual hierarchy.
+Most important KPIs should appear first.
+35. DASHBOARD INTERACTIONS
+Support:
+Global filters
+Chart filters
+Cross-filtering
+Drill-down
+Hover
+Zoom
+Reset
+Date range selection
+All interactions should work consistently.
+36. MULTI-PAGE DASHBOARDS
+Allow multiple dashboard pages.
+Example:
+Page 1:Executive Overview
+Page 2:Sales Analysis
+Page 3:Customer Analysis
+Page 4:Product Analysis
+Page 5:Regional Analysis
+Page 6:Detailed Data
+37. BUSINESS DASHBOARD TEMPLATES
+Provide templates for:
+Sales Dashboard
+Revenue
+Profit
+Orders
+Customers
+Sales trend
+Regional sales
+Product performance
+Marketing Dashboard
+Leads
+Conversion
+Campaign performance
+CAC
+ROI
+Customer Dashboard
+Customer count
+New customers
+Returning customers
+Retention
+Customer value
+Finance Dashboard
+Revenue
+Expenses
+Profit
+Margin
+Cash flow
+38. AI VISUALIZATION ASSISTANT
+Create an optional AI assistant.
+User can type:
+"Show monthly sales trend."
+Generate:
+Recommended chart
+Required columns
+Aggregation
+Chart configuration
+Another example:
+"Which region has the highest revenue?"
+Generate:
+Bar chart
+Ranking
+Answer
+Supporting data
+Before making important transformations, explain what is being done.
+Do not invent data.
+39. NATURAL LANGUAGE TO VISUALIZATION
+Support prompts such as:
+"Create a bar chart of sales by region."
+"Show monthly revenue for 2025."
+"Compare profit margins across product categories."
+"Show the relationship between advertising spend and revenue."
+Convert these into visualization configurations.
+Display the generated configuration before applying if ambiguity exists.
+40. AUTO-GENERATED INSIGHTS
+For each visualization optionally generate:
+Observation
+What does the data show?
+Comparison
+Which category is highest/lowest?
+Trend
+Is the metric increasing/decreasing?
+Anomaly
+Are there unusual observations?
+Business implication
+What might this mean?
+Clearly distinguish:
+Observed fact
+from
+Possible explanation.
+Do not invent causes that are not supported by the dataset.
+41. VISUALIZATION QUALITY CHECK
+Before displaying a chart, check:
+Appropriate chart type
+Correct aggregation
+Correct data type
+Missing values
+Outliers
+Too many categories
+Misleading axis
+Duplicate data
+Incorrect percentages
+Invalid date order
+Display warnings where necessary.
+Example:
+"Pie chart contains 18 categories. A bar chart may provide better comparison."
+42. ANTI-MISLEADING VISUALIZATION RULES
+Never:
+Manipulate axes to exaggerate differences
+Hide important categories
+Use inappropriate 3D charts
+Present correlation as causation
+Show percentages without a valid denominator
+Use pie charts for time series
+Compare incompatible units on one axis
+Remove inconvenient data without explanation
+If a visualization could mislead the user, show a warning.
+43. DATA TABLE
+Every visualization should optionally provide the underlying data table.
+Allow:
+Search
+Sort
+Filter
+Pagination
+Export
+Provide:
+"View underlying data"
+so analysts can verify the visualization.
+44. EXPORT
+Support:
+Individual charts
+PNG
+SVG
+PDF
+Dashboard
+PDF
+PNG
+HTML where supported
+Data
+CSV
+Excel
+Configuration
+JSON
+Example:
+sales_dashboard.pdf
+sales_chart.png
+dashboard_config.json
+45. SHARING
+Allow users to:
+Save dashboard
+Rename dashboard
+Duplicate dashboard
+Export dashboard
+Share dashboard configuration
+If a backend is implemented, store dashboard metadata securely.
+Do not expose private datasets through public URLs by default.
+46. VERSION HISTORY
+Maintain:
+Dashboard versionCreated timeModified timeChanges
+Allow:
+Restore previous version
+Duplicate version
+Compare configurations
+47. PERFORMANCE
+For large datasets:
+Aggregate before visualization where appropriate
+Use sampling only when clearly indicated
+Cache expensive calculations
+Avoid rendering thousands of unnecessary visual marks
+Use server-side aggregation where appropriate
+Keep interactions responsive
+Never silently sample data when the user expects exact results.
+If sampling is used for visualization, clearly indicate it.
+48. ERROR HANDLING
+Handle:
+Invalid chart configuration
+Missing columns
+Unsupported data types
+Empty dataset
+Too many categories
+Invalid date values
+Division by zero
+Missing geographic information
+Extremely large datasets
+Show useful error messages instead of crashing.
+49. TECHNICAL ARCHITECTURE
+Suggested backend:
+PythonPandasNumPySciPy where required
+Suggested visualization:
+PlotlyorApache ECharts
+Suggested frontend:
+React
+Suggested backend API:
+FastAPI
+Suggested data engine:
+DuckDB for local analytical queries where appropriate.
+Use modular architecture:
+backend/app/main.pyvisualization/charts/recommendations/dashboard/analytics/insights/exports/
+frontend/src/components/charts/dashboard/pages/services/hooks/
+tests/test_visualizations.pytest_recommendations.pytest_dashboard.py
+50. VISUALIZATION CONFIGURATION
+Store each chart as a structured configuration.
+Example conceptual structure:
+Chart Type:bar
+X:region
+Y:sales
+Aggregation:SUM
+Sort:descending
+Top N:10
+Filters:year = 2026
+This configuration must be reproducible.
+51. FINAL END-TO-END WORKFLOW
+Dataset↓Load Data↓Profile Data↓Detect Data Types↓Understand Business Question↓Select Variables↓Recommend Visualization↓Choose Chart↓Select Aggregation↓Apply Filters↓Generate Visualization↓Validate Visualization↓Generate Insight↓Add to Dashboard↓Add Interactions↓Review Dashboard↓Export / Share
+52. INTEGRATION WITH THE COMPLETE DATA ANALYST SYSTEM
+The visualization module must integrate with the other modules:
+DATA UPLOAD↓DATA CLEANING↓DATA TRANSFORMATION↓SQL ANALYSIS↓EDA↓STATISTICAL ANALYSIS↓DATA VISUALIZATION↓DASHBOARD↓BUSINESS INSIGHTS↓RECOMMENDATIONS↓FINAL REPORT
+Changes made upstream should be reflected in downstream visualizations where the pipeline is connected.
+53. ACCEPTANCE CRITERIA
+The module is complete only when:
+Data can be loaded
+Columns are automatically profiled
+Chart recommendations work
+Manual chart builder works
+Bar charts work
+Line charts work
+Scatter plots work
+Histograms work
+Box plots work
+Pie/donut charts work
+Heatmaps work
+KPI cards work
+Filters work
+Cross-filtering works
+Drill-down works
+Dashboard builder works
+Multi-page dashboards work
+AI visualization assistant works
+Natural-language visualization works
+Automatic insights work
+Visualization quality checks work
+Underlying data can be inspected
+Charts can be exported
+Dashboards can be exported
+Configurations can be saved
+Version history works
+Large datasets are handled efficiently
+Misleading visualizations are prevented or warned against
+Original data remains untouched
+Build this as a professional, interactive Data Visualization and Business Intelligence module for real-world Data Analysts, not as a static chart gallery.

@@ -1,0 +1,15 @@
+{
+  "config": "{\"version\":\"5.53\",\"themeCollection\":{\"baseTheme\":{\"name\":\"ExecutiveTechnical\",\"version\":\"1.0\",\"type\":2}},\"activeSectionIndex\":0,\"defaultDrillFilterOtherVisuals\":true}",
+  "layoutOptimization": 0,
+  "sections": [
+    {
+      "name": "ReportSection_ExecutiveOverview",
+      "displayName": "Executive Overview",
+      "filters": "[]",
+      "ordinal": 0,
+      "visualContainers": [],
+      "width": 1280.00,
+      "height": 720.00
+    }
+  ]
+}

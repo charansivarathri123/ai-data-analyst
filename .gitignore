@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing & Coverage
+coverage/
+.nyc_output
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*$py.class
+.coverage
+htmlcov/
+
+# Production Builds
+.next/
+out/
+build/
+dist/
+
+# Python Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+*.env
+*.env.*
+!*.env.example
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Data & Cache files
+data/raw/
+data/cleaned/
+data/transformed/
+data/exports/
+*.duckdb
+*.duckdb.wal
+*.log
+uploads/
+exports/
+
+# Power BI binary caches
+*.pbix
+!templates/**/*.pbix

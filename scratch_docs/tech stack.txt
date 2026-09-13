@@ -1,0 +1,89 @@
+To build the Autonomous AI Data Analyst & BI Studio into a production-grade SaaS product, you need a decoupled architecture that handles heavy computational data processing, cyclic multi-agent orchestration, sandboxed code execution, and programmatic Power BI template generation.
+Recommended Technology Stack
+Layer
+Recommended Choice
+Production Alternatives
+Why This Choice?
+Frontend & UI
+Next.js 15 (React 19) + Tailwind CSS + shadcn/ui
+Remix, Vite + React
+Native Server-Sent Events (SSE) support for streaming agent thoughts/logs, polished component primitives, and responsive layout.
+Animation & Charts
+Motion (Framer Motion) + Recharts / Tremor
+Lucide React, Nivo
+Recharts/Tremor deliver executive-level KPI cards and charts; Motion matches the floating-card aesthetic.
+Backend API
+Python 3.12 + FastAPI
+Litestar
+Asynchronous endpoints, native typing via Pydantic v2, and direct compatibility with data science and LLM toolchains.
+Agent Orchestration
+LangGraph
+CrewAI, AutoGen
+Provides stateful, cyclic multi-agent graphs with built-in checkpointing, error-recovery loops, and conditional routing.
+Data Engine
+DuckDB + Polars
+Pandas, PySpark
+10x–50x faster than Pandas; handles multi-million row datasets in-memory with zero memory bloat and native SQL querying.
+Sandboxed Code Execution
+E2B Code Interpreter
+Modal, Isolated Docker Containers
+Gives agents a secure, disposable cloud sandbox to run generated Python code, statistical tests, and chart scripts safely.
+Power BI Generation
+TMDL + PBIP (Power BI Project) Spec
+Tabular Editor CLI, pypbit
+TMDL (Tabular Model Definition Language) is plain text. Agents can generate semantic models, star schemas, and DAX measures without touching a binary .pbix.
+Database & Auth
+Supabase (PostgreSQL + Auth + Storage)
+Neon + AWS S3
+Stores user metadata, project history, raw/cleaned datasets, and generated .pbip ZIP files in one managed backend.
+Task Queue & State
+Redis + Celery (or Inngest)
+BullMQ, Temporal
+Manages long-running agent workflows (EDA, modeling) asynchronously so API requests do not time out.
+Observability
+LangSmith
+Arize Phoenix, Helicone
+Traces agent decisions, token usage, latency, and prompt failure rates across multi-agent cycles.
+Layer-by-Layer Architectural Role
+1. Frontend Application (Next.js + Tailwind + Motion)
+File Ingestion: Drag-and-drop zone using react-dropzone with chunked upload direct to S3/Supabase storage.
+Agent Execution Terminal: Displays a real-time terminal or step-progress bar powered by Server-Sent Events (SSE) streaming from FastAPI (event: agent_step, data: "Running outlier detection...").
+Interactive Results: Displays key metrics, correlation heatmaps, and downloadable assets (clean_data.csv, report_template.pbip).
+2. Analytical Engine (DuckDB + Polars)
+Replaces standard Pandas. DuckDB allows agents to execute direct SQL queries against uploaded CSV/Parquet files without loading the entire dataset into RAM.
+Polars runs high-speed vectorized transformations, automated null imputations, and schema casting.
+3. Multi-Agent Engine (LangGraph + E2B Sandbox)
+State Machine: LangGraph stores the pipeline state (raw_data_path, clean_data_path, eda_metrics, root_causes, dax_measures).
+Self-Healing Execution: When the Data Cleaner Agent generates Python code to clean anomalous values, it runs the code inside an E2B Sandbox. If the script throws a traceback, the agent catches the error, reflects, and fixes the script automatically.
+4. Power BI Programmatic Pipeline (PBIP / TMDL)
+Modern Power BI Desktop uses PBIP format, where data models are defined using TMDL (.tmdl files) and report visuals use JSON.
+The BI Agent emits:
+A star-schema TMDL script defining tables, data types, relationships, and DAX measures.
+A zipped folder bundle containing the .pbip files.
+Users can open the generated .pbip directly in Power BI Desktop with zero manual modeling.
+Recommended Folder Structure
+Bash
+bi-studio/
+├── frontend/                     # Next.js App Router
+│   ├── app/                      # Routes (dashboard, upload, report)
+│   ├── components/
+│   │   ├── agents/               # Live pipeline step monitors
+│   │   ├── charts/               # Recharts insight widgets
+│   │   └── ui/                   # shadcn/ui components
+│   └── lib/                      # API client & SSE hooks
+│
+└── backend/                      # FastAPI + LangGraph Service
+    ├── app/
+    │   ├── api/                  # Routes (/upload, /analyze, /export)
+    │   ├── agents/               # LangGraph agents
+    │   │   ├── cleaner.py        # Data Wrangling Agent
+    │   │   ├── eda.py            # Feature & Statistical Agent
+    │   │   ├── diagnostic.py     # Root-Cause Analyzer Agent
+    │   │   └── powerbi.py        # TMDL/DAX Architect Agent
+    │   ├── engine/
+    │   │   ├── duckdb_client.py  # Fast SQL query layer
+    │   │   └── sandbox.py        # E2B sandbox executor
+    │   ├── templates/            # PBIP & TMDL base schemas
+    │   └── main.py
+    ├── Dockerfile
+    └── requirements.txt

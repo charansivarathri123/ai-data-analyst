@@ -1,0 +1,213 @@
+Build a complete, production-quality Exploratory Data Analysis (EDA) module for a Data Analyst application.
+The purpose is to automatically explore a dataset, discover patterns, relationships, anomalies and trends, and convert statistical results into understandable analytical insights.
+1. INPUT
+Accept:
+CSV
+Excel
+Cleaned DataFrame
+SQL query result
+Transformed dataset
+Do not modify the source dataset.
+2. DATASET OVERVIEW
+Display:
+Rows
+Columns
+Data types
+Missing values
+Duplicate rows
+Unique values
+Memory usage
+Create a summary dashboard.
+3. UNIVARIATE ANALYSIS
+For numerical variables calculate:
+Mean
+Median
+Mode
+Min
+Max
+Range
+Variance
+Standard deviation
+Quartiles
+IQR
+Skewness
+Kurtosis
+Visualizations:
+Histogram
+KDE where appropriate
+Box plot
+ECDF where useful
+4. CATEGORICAL ANALYSIS
+For categorical variables calculate:
+Unique count
+Frequency
+Percentage
+Top categories
+Visualizations:
+Bar chart
+Stacked bar
+Treemap where useful
+Automatically warn about:
+High cardinality
+Rare categories
+Dominant categories
+5. BIVARIATE ANALYSIS
+Numerical vs Numerical:
+Correlation
+Scatter plot
+Regression trend where appropriate
+Categorical vs Numerical:
+Grouped statistics
+Box plot
+Violin plot where appropriate
+Categorical vs Categorical:
+Cross-tabulation
+Stacked bar
+Heatmap
+6. MULTIVARIATE ANALYSIS
+Support:
+Correlation matrix
+Pair plots where dataset size allows
+Grouped analysis
+Pivot analysis
+Multivariable relationships
+Avoid generating extremely large visualizations automatically.
+7. CORRELATION ANALYSIS
+Calculate:
+Pearson correlation
+Spearman correlation where appropriate
+Display a correlation matrix.
+Flag strong relationships using configurable thresholds.
+Example:
+|r| >= 0.7
+Explain that correlation does not prove causation.
+8. DISTRIBUTION ANALYSIS
+Detect:
+Normal-like distributions
+Right skew
+Left skew
+Heavy tails
+Zero inflation
+Extreme values
+Recommend transformations where appropriate:
+Log
+Square root
+Robust methods
+Do not automatically transform the data.
+9. OUTLIER ANALYSIS
+Use:
+IQR
+Z-score
+Modified Z-score where appropriate
+Show:
+Outlier count
+Percentage
+Affected columns
+Affected rows
+Visualize with:
+Box plots
+Scatter plots
+10. MISSING VALUE ANALYSIS
+Show:
+Missing count
+Missing percentage
+Missingness by column
+Missingness patterns
+Visualizations:
+Missing-value bar chart
+Missingness heatmap
+Look for relationships between missingness and other variables where appropriate.
+11. TIME-SERIES EDA
+Automatically identify date columns.
+Analyze:
+Daily trends
+Weekly trends
+Monthly trends
+Quarterly trends
+Yearly trends
+Seasonality
+Growth
+Moving averages
+Peaks
+Troughs
+Visualizations:
+Line chart
+Rolling average
+Seasonal comparison
+12. GROUP ANALYSIS
+Allow users to select:
+Group By:Region
+Metric:Sales
+Aggregations:
+SUMAVGCOUNTMEDIANMINMAX
+Provide ranking.
+Example:
+Region | Sales | Profit | Orders
+13. AUTOMATIC INSIGHT DETECTION
+Build an insight engine.
+Detect:
+Highest-performing category
+Lowest-performing category
+Largest growth
+Largest decline
+Strong correlations
+Significant differences
+Outliers
+Missing-data problems
+Concentration
+Trends
+Seasonality
+Generate human-readable insights.
+Example:
+"Electronics generated the highest revenue, contributing 42% of total sales."
+Clearly distinguish observed facts from hypotheses.
+14. DATA STORY
+Generate a structured summary:
+Dataset Overview
+Key Patterns
+Important Trends
+Anomalies
+Relationships
+Data Quality Issues
+Business Insights
+Recommended Next Analysis
+15. INTERACTIVE FILTERING
+Allow:
+Date filters
+Category filters
+Numeric range filters
+Region filters
+Customer filters
+All charts and metrics should update accordingly.
+16. VISUALIZATION RECOMMENDATION
+For each variable pair recommend the appropriate visualization.
+Example:
+Time + Revenue → Line
+Category + Revenue → Bar
+Revenue distribution → Histogram
+Revenue vs Profit → Scatter
+Category + Revenue distribution → Box plot
+17. EDA REPORT
+Generate an exportable report containing:
+Dataset overview
+Data quality
+Descriptive statistics
+Charts
+Correlations
+Outliers
+Missing values
+Key findings
+Recommendations
+Support:
+PDFHTMLExcel summary
+18. PERFORMANCE
+For large datasets:
+Sample intelligently for visualizations
+Avoid expensive pair plots
+Use efficient aggregation
+Cache calculations
+Allow configurable sample size
+Never misrepresent sampled visualization results as full-dataset statistics.
+19. FINAL WORKFLOW
+Load Dataset↓Profile Dataset↓Data Quality Check↓Univariate Analysis↓Bivariate Analysis↓Multivariate Analysis↓Distribution Analysis↓Outlier Analysis↓Time-Series Analysis↓Correlation Analysis↓Automatic Insight Detection↓Business Interpretation↓EDA Report
+Build a professional interactive EDA environment suitable for real Data Analyst projects.
