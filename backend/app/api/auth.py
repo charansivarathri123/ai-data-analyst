@@ -57,10 +57,11 @@ class VerifyOTPRequest(BaseModel):
 
 
 class GoogleAuthRequest(BaseModel):
-    name: str = Field(..., description="Full Name from Google profile")
-    email: str = Field(..., description="Email address from Google profile")
-    avatar_url: Optional[str] = Field(None, description="Profile picture URL")
-    google_id: Optional[str] = Field(None, description="Google OAuth subject ID")
+    name: Optional[str] = None
+    email: Optional[str] = None
+    avatar_url: Optional[str] = None
+    google_id: Optional[str] = None
+    credential: Optional[str] = Field(None, description="Raw Google ID token JWT from Google Identity Services")
 
 
 class AppleAuthRequest(BaseModel):
@@ -267,10 +268,36 @@ async def verify_otp(req: VerifyOTPRequest, db: Session = Depends(get_db)):
 @router.post("/google", response_model=AuthResponse)
 async def google_auth(req: GoogleAuthRequest, db: Session = Depends(get_db)):
     """Authenticate or register a user via Google Sign-In."""
-    email = req.email.strip().lower()
-    name = req.name.strip() or email.split("@")[0].capitalize()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    email = (req.email or "").strip().lower()
+    name = (req.name or "").strip()
+    avatar_url = req.avatar_url
 
+    # If raw Google ID token is provided, decode payload
+    if req.credential:
+        try:
+            import base64
+            payload_b64 = req.credential.split(".")[1]
+            padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+            jwt_data = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+            if jwt_data.get("email"):
+                email = jwt_data["email"].strip().lower()
+            if jwt_data.get("name"):
+                name = jwt_data["name"].strip()
+            if jwt_data.get("picture"):
+                avatar_url = jwt_data["picture"]
+        except Exception as e:
+            logger.warning(f"Could not parse Google ID token: {e}")
+
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Valid email address is required for Google Sign-In.",
+        )
+
+    if not name:
+        name = email.split("@")[0].replace(".", " ").capitalize()
+
+    now_iso = datetime.now(timezone.utc).isoformat()
     user = db.query(UserModel).filter(UserModel.identifier == email).first()
     if not user:
         user = UserModel(
