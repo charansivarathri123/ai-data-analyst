@@ -41,16 +41,25 @@ ENV/
 .DS_Store
 Thumbs.db
 
+# Build Caches & Scratch
+*.tsbuildinfo
+scratch_docs/
+
 # Data & Cache files
-data/raw/
-data/cleaned/
-data/transformed/
-data/exports/
+data/raw/*
+!data/raw/sample_business_sales.csv
+data/cleaned/*
+!data/cleaned/.gitkeep
+data/transformed/*
+!data/transformed/.gitkeep
+data/exports/*
+!data/exports/.gitkeep
+backend/data/
 *.duckdb
 *.duckdb.wal
 *.log
-uploads/
-exports/
+/uploads/
+/exports/
 
 # Power BI binary caches
 *.pbix

@@ -1,0 +1,21 @@
+Transaction ID,Order Date,Customer Segment,Region,Gross Revenue,Discount Rate,Units Sold,Customer LTV
+TX-1001,2024-01-15,Enterprise,North America,"$12,450.00",10%,4,4500.0
+TX-1002,2024-01-16,SMB,Europe,"$3,200.50",5%,2,1200.0
+TX-1003,2024-01-17,Enterprise,Asia Pacific,"$18,900.00",15%,6,8900.0
+TX-1004,2024-01-18,Mid-Market,North America,"$5,600.00",0%,3,3100.0
+TX-1005,2024-01-19,SMB,Latin America,"$1,450.00",20%,1,
+TX-1006,2024-01-20,,Europe,"$8,750.00",10%,5,5600.0
+TX-1007,2024-01-21,Enterprise,North America,"$24,500.00",12%,8,14200.0
+TX-1008,2024-01-22,Mid-Market,Europe,"$4,100.00",5%,2,2900.0
+TX-1009,2024-01-23,SMB,North America,"$950.00",0%,1,850.0
+TX-1010,2024-01-24,Enterprise,Asia Pacific,"$31,200.00",15%,10,
+TX-1001,2024-01-15,Enterprise,North America,"$12,450.00",10%,4,4500.0
+TX-1011,2024-01-25,Mid-Market,Latin America,"$6,800.00",8%,3,4100.0
+TX-1012,2024-01-26,SMB,Europe,"$2,100.00",5%,1,1650.0
+TX-1013,2024-01-27,Enterprise,North America,"$15,400.00",10%,5,9400.0
+TX-1014,2024-01-28,,Asia Pacific,"$7,300.00",12%,3,4800.0
+TX-1015,2024-01-29,Mid-Market,North America,"$9,200.00",5%,4,6200.0
+TX-1007,2024-01-21,Enterprise,North America,"$24,500.00",12%,8,14200.0
+TX-1016,2024-01-30,SMB,Latin America,"$1,850.00",15%,1,1400.0
+TX-1017,2024-01-31,Enterprise,Europe,"$22,100.00",10%,7,12800.0
+TX-1018,2024-02-01,Mid-Market,Asia Pacific,"$5,900.00",5%,2,3600.0
