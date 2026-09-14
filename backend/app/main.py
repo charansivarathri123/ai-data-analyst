@@ -29,6 +29,8 @@ from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 
 
+from app.db.database import init_db, get_db_status
+
 # ---------------------------------------------------------------------------
 # Lifespan Context Manager
 # ---------------------------------------------------------------------------
@@ -42,6 +44,14 @@ async def lifespan(app: FastAPI):
     os.makedirs("./data/transformed", exist_ok=True)
     os.makedirs("./data/exports", exist_ok=True)
     os.makedirs("./data/exports/visualizations", exist_ok=True)
+
+    # Initialize persistent database schema
+    try:
+        init_db()
+        print("[Startup] Persistent database initialized successfully.")
+    except Exception as exc:
+        print(f"[Startup Warning] Database initialization failed: {exc}")
+
     print("[Startup] Autonomous AI Data Analyst & BI Studio Backend initialized (7-Agent Pipeline).")
     yield
     print("[Shutdown] Backend server shutting down.")
@@ -84,18 +94,23 @@ class HealthResponse(BaseModel):
     version: str = Field(default="2.0.0")
     timestamp: str
     environment: str
+    database: Dict[str, Any] = Field(default_factory=dict)
     agents_ready: List[str]
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["Health"])
 async def get_health() -> HealthResponse:
     """Perform a service health check and inspect agent subsystem readiness."""
+    db_status = get_db_status()
+    overall_status = "healthy" if db_status.get("status") == "connected" else "degraded"
+
     return HealthResponse(
-        status="healthy",
+        status=overall_status,
         service="Autonomous AI Data Analyst & BI Studio",
         version="2.0.0",
         timestamp=datetime.now(timezone.utc).isoformat(),
         environment=os.getenv("ENVIRONMENT", "development"),
+        database=db_status,
         agents_ready=[
             "data_cleaner",
             "data_transformer",

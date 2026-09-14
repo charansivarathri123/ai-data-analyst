@@ -1,32 +1,31 @@
 """Authentication & User Session router for Autonomous AI Data Analyst Studio.
 
-Supports:
+Backed by persistent database (SQLAlchemy - SQLite/PostgreSQL):
 1. Mobile Number + Name with 6-digit OTP (5-minute expiry)
 2. Email with 6-digit OTP (5-minute expiry)
 3. Google Sign-In
-4. User-scoped project and chat persistence
+4. Apple Sign-In
+5. Direct Email Sign-In
+6. User-scoped project workspaces persistence
+7. User-scoped chat threads persistence
 """
 
+import json
 import logging
-import os
-import random
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.db.database import get_db
+from app.db.models import UserModel, SessionModel, OTPModel, ProjectModel, ChatSessionModel
 
 logger = logging.getLogger("auth")
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
-
-# In-memory stores for development / persistence
-OTP_STORE: Dict[str, Dict[str, Any]] = {}
-USERS_STORE: Dict[str, Dict[str, Any]] = {}
-SESSIONS_STORE: Dict[str, str] = {}  # token -> user_id
-USER_PROJECTS: Dict[str, List[Dict[str, Any]]] = {}  # user_id -> list of projects
-USER_CHATS: Dict[str, List[Dict[str, Any]]] = {}  # user_id -> list of chat sessions
 
 OTP_EXPIRY_MINUTES = 5
 
@@ -78,7 +77,7 @@ class UserProfile(BaseModel):
     id: str
     name: str
     identifier: str  # email or phone
-    auth_type: str  # 'mobile', 'email', 'google'
+    auth_type: str  # 'mobile', 'email', 'google', 'apple'
     avatar_url: Optional[str] = None
     created_at: str
 
@@ -123,7 +122,7 @@ def generate_otp_code() -> str:
 # ---------------------------------------------------------------------------
 
 @router.post("/otp/send", response_model=SendOTPResponse)
-async def send_otp(req: SendOTPRequest):
+async def send_otp(req: SendOTPRequest, db: Session = Depends(get_db)):
     """Generate and dispatch a 6-digit OTP code to mobile number or email."""
     destination = req.destination.strip().lower() if req.channel == "email" else req.destination.strip()
     if not destination:
@@ -134,15 +133,28 @@ async def send_otp(req: SendOTPRequest):
 
     # Generate 6-digit OTP
     code = generate_otp_code()
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
+    now_utc = datetime.now(timezone.utc)
+    expires_at = now_utc + timedelta(minutes=OTP_EXPIRY_MINUTES)
 
-    OTP_STORE[destination] = {
-        "code": code,
-        "expires_at": expires_at,
-        "channel": req.channel,
-        "name": req.name or "",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
+    # Persist or update OTP in database
+    otp_record = db.query(OTPModel).filter(OTPModel.destination == destination).first()
+    if not otp_record:
+        otp_record = OTPModel(
+            destination=destination,
+            code=code,
+            channel=req.channel,
+            name=req.name or "",
+            expires_at=expires_at,
+            created_at=now_utc.isoformat(),
+        )
+        db.add(otp_record)
+    else:
+        otp_record.code = code
+        otp_record.channel = req.channel
+        otp_record.name = req.name or otp_record.name or ""
+        otp_record.expires_at = expires_at
+        otp_record.created_at = now_utc.isoformat()
+    db.commit()
 
     # Log clearly to backend console for developer visibility
     print(f"\n[AUTH] ===================================================")
@@ -157,81 +169,91 @@ async def send_otp(req: SendOTPRequest):
         destination=destination,
         message=f"Verification code sent to {destination}. Valid for {OTP_EXPIRY_MINUTES} minutes.",
         expires_in_seconds=OTP_EXPIRY_MINUTES * 60,
-        dev_code=code,  # Returns dev_code for convenient automated/local testing
+        dev_code=code,
     )
 
 
 @router.post("/otp/verify", response_model=AuthResponse)
-async def verify_otp(req: VerifyOTPRequest):
+async def verify_otp(req: VerifyOTPRequest, db: Session = Depends(get_db)):
     """Verify the 6-digit OTP code and authenticate/register the user."""
     destination = req.destination.strip().lower() if req.channel == "email" else req.destination.strip()
     code = req.code.strip()
 
-    record = OTP_STORE.get(destination)
+    record = db.query(OTPModel).filter(OTPModel.destination == destination).first()
     if not record:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No active OTP found for this destination. Please request a new code.",
         )
 
-    # Check expiry
-    if datetime.now(timezone.utc) > record["expires_at"]:
-        OTP_STORE.pop(destination, None)
+    # Check expiry safely with timezone support
+    exp = record.expires_at
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > exp:
+        db.delete(record)
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This verification code has expired (validity is 5 minutes). Please request a new one.",
         )
 
     # Check code match
-    if record["code"] != code:
+    if record.code != code:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Incorrect verification code. Please check and re-enter.",
         )
 
     # Code matches - consume it
-    name = req.name or record.get("name")
+    name = req.name or record.name
     if not name:
         if req.channel == "email":
             name = destination.split("@")[0].capitalize()
         else:
             name = f"User {destination[-4:]}" if len(destination) >= 4 else "User"
 
-    OTP_STORE.pop(destination, None)
+    db.delete(record)
+    db.commit()
 
     # Find or create user
-    user_id = None
-    for uid, u in USERS_STORE.items():
-        if u.get("identifier") == destination:
-            user_id = uid
-            break
+    user = db.query(UserModel).filter(UserModel.identifier == destination).first()
+    now_iso = datetime.now(timezone.utc).isoformat()
 
-    if not user_id:
-        user_id = f"usr_{secrets.token_hex(6)}"
-        USERS_STORE[user_id] = {
-            "id": user_id,
-            "name": name,
-            "identifier": destination,
-            "auth_type": req.channel,
-            "avatar_url": None,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+    if not user:
+        user = UserModel(
+            id=f"usr_{secrets.token_hex(6)}",
+            name=name,
+            identifier=destination,
+            auth_type=req.channel,
+            avatar_url=None,
+            created_at=now_iso,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
     else:
-        if name and USERS_STORE[user_id].get("name") != name:
-            USERS_STORE[user_id]["name"] = name
+        if name and user.name != name:
+            user.name = name
+            db.commit()
 
     # Create session token
     session_token = secrets.token_urlsafe(32)
-    SESSIONS_STORE[session_token] = user_id
+    session_record = SessionModel(
+        token=session_token,
+        user_id=user.id,
+        created_at=now_iso,
+    )
+    db.add(session_record)
+    db.commit()
 
-    user_info = USERS_STORE[user_id]
     profile = UserProfile(
-        id=user_info["id"],
-        name=user_info["name"],
-        identifier=user_info["identifier"],
-        auth_type=user_info["auth_type"],
-        avatar_url=user_info.get("avatar_url"),
-        created_at=user_info["created_at"],
+        id=user.id,
+        name=user.name,
+        identifier=user.identifier,
+        auth_type=user.auth_type,
+        avatar_url=user.avatar_url,
+        created_at=user.created_at,
     )
 
     return AuthResponse(
@@ -243,43 +265,47 @@ async def verify_otp(req: VerifyOTPRequest):
 
 
 @router.post("/google", response_model=AuthResponse)
-async def google_auth(req: GoogleAuthRequest):
+async def google_auth(req: GoogleAuthRequest, db: Session = Depends(get_db)):
     """Authenticate or register a user via Google Sign-In."""
     email = req.email.strip().lower()
     name = req.name.strip() or email.split("@")[0].capitalize()
+    now_iso = datetime.now(timezone.utc).isoformat()
 
-    user_id = None
-    for uid, u in USERS_STORE.items():
-        if u.get("identifier") == email:
-            user_id = uid
-            break
-
-    if not user_id:
-        user_id = f"usr_{secrets.token_hex(6)}"
-        USERS_STORE[user_id] = {
-            "id": user_id,
-            "name": name,
-            "identifier": email,
-            "auth_type": "google",
-            "avatar_url": req.avatar_url,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+    user = db.query(UserModel).filter(UserModel.identifier == email).first()
+    if not user:
+        user = UserModel(
+            id=f"usr_{secrets.token_hex(6)}",
+            name=name,
+            identifier=email,
+            auth_type="google",
+            avatar_url=req.avatar_url,
+            created_at=now_iso,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
     else:
-        USERS_STORE[user_id]["name"] = name
+        user.name = name
         if req.avatar_url:
-            USERS_STORE[user_id]["avatar_url"] = req.avatar_url
+            user.avatar_url = req.avatar_url
+        db.commit()
 
     session_token = secrets.token_urlsafe(32)
-    SESSIONS_STORE[session_token] = user_id
+    session_record = SessionModel(
+        token=session_token,
+        user_id=user.id,
+        created_at=now_iso,
+    )
+    db.add(session_record)
+    db.commit()
 
-    user_info = USERS_STORE[user_id]
     profile = UserProfile(
-        id=user_info["id"],
-        name=user_info["name"],
-        identifier=user_info["identifier"],
-        auth_type=user_info["auth_type"],
-        avatar_url=user_info.get("avatar_url"),
-        created_at=user_info["created_at"],
+        id=user.id,
+        name=user.name,
+        identifier=user.identifier,
+        auth_type=user.auth_type,
+        avatar_url=user.avatar_url,
+        created_at=user.created_at,
     )
 
     return AuthResponse(
@@ -291,39 +317,45 @@ async def google_auth(req: GoogleAuthRequest):
 
 
 @router.post("/apple", response_model=AuthResponse)
-async def apple_auth(req: AppleAuthRequest):
+async def apple_auth(req: AppleAuthRequest, db: Session = Depends(get_db)):
     """Authenticate or register a user via Apple Sign-In."""
     email = (req.email or "apple.user@privaterelay.appleid.com").strip().lower()
     name = req.name.strip() if req.name else email.split("@")[0].capitalize()
+    now_iso = datetime.now(timezone.utc).isoformat()
 
-    user_id = None
-    for uid, u in USERS_STORE.items():
-        if u.get("identifier") == email:
-            user_id = uid
-            break
-
-    if not user_id:
-        user_id = f"usr_{secrets.token_hex(6)}"
-        USERS_STORE[user_id] = {
-            "id": user_id,
-            "name": name,
-            "identifier": email,
-            "auth_type": "apple",
-            "avatar_url": None,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+    user = db.query(UserModel).filter(UserModel.identifier == email).first()
+    if not user:
+        user = UserModel(
+            id=f"usr_{secrets.token_hex(6)}",
+            name=name,
+            identifier=email,
+            auth_type="apple",
+            avatar_url=None,
+            created_at=now_iso,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        user.name = name
+        db.commit()
 
     session_token = secrets.token_urlsafe(32)
-    SESSIONS_STORE[session_token] = user_id
+    session_record = SessionModel(
+        token=session_token,
+        user_id=user.id,
+        created_at=now_iso,
+    )
+    db.add(session_record)
+    db.commit()
 
-    user_info = USERS_STORE[user_id]
     profile = UserProfile(
-        id=user_info["id"],
-        name=user_info["name"],
-        identifier=user_info["identifier"],
-        auth_type=user_info["auth_type"],
-        avatar_url=user_info.get("avatar_url"),
-        created_at=user_info["created_at"],
+        id=user.id,
+        name=user.name,
+        identifier=user.identifier,
+        auth_type=user.auth_type,
+        avatar_url=user.avatar_url,
+        created_at=user.created_at,
     )
 
     return AuthResponse(
@@ -335,42 +367,49 @@ async def apple_auth(req: AppleAuthRequest):
 
 
 @router.post("/email-direct", response_model=AuthResponse)
-async def email_direct_auth(req: EmailDirectRequest):
+async def email_direct_auth(req: EmailDirectRequest, db: Session = Depends(get_db)):
     """Authenticate or register directly via email."""
     email = req.email.strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please enter a valid email address.")
 
     name = req.name.strip() if req.name else email.split("@")[0].replace(".", " ").capitalize()
+    now_iso = datetime.now(timezone.utc).isoformat()
 
-    user_id = None
-    for uid, u in USERS_STORE.items():
-        if u.get("identifier") == email:
-            user_id = uid
-            break
-
-    if not user_id:
-        user_id = f"usr_{secrets.token_hex(6)}"
-        USERS_STORE[user_id] = {
-            "id": user_id,
-            "name": name,
-            "identifier": email,
-            "auth_type": "email",
-            "avatar_url": None,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+    user = db.query(UserModel).filter(UserModel.identifier == email).first()
+    if not user:
+        user = UserModel(
+            id=f"usr_{secrets.token_hex(6)}",
+            name=name,
+            identifier=email,
+            auth_type="email",
+            avatar_url=None,
+            created_at=now_iso,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        if name:
+            user.name = name
+            db.commit()
 
     session_token = secrets.token_urlsafe(32)
-    SESSIONS_STORE[session_token] = user_id
+    session_record = SessionModel(
+        token=session_token,
+        user_id=user.id,
+        created_at=now_iso,
+    )
+    db.add(session_record)
+    db.commit()
 
-    user_info = USERS_STORE[user_id]
     profile = UserProfile(
-        id=user_info["id"],
-        name=user_info["name"],
-        identifier=user_info["identifier"],
-        auth_type=user_info["auth_type"],
-        avatar_url=user_info.get("avatar_url"),
-        created_at=user_info["created_at"],
+        id=user.id,
+        name=user.name,
+        identifier=user.identifier,
+        auth_type=user.auth_type,
+        avatar_url=user.avatar_url,
+        created_at=user.created_at,
     )
 
     return AuthResponse(
@@ -382,19 +421,23 @@ async def email_direct_auth(req: EmailDirectRequest):
 
 
 @router.get("/me", response_model=UserProfile)
-async def get_current_user(token: str):
+async def get_current_user(token: str, db: Session = Depends(get_db)):
     """Retrieve profile for active session token."""
-    user_id = SESSIONS_STORE.get(token)
-    if not user_id or user_id not in USERS_STORE:
+    session_record = db.query(SessionModel).filter(SessionModel.token == token).first()
+    if not session_record:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session token.")
-    u = USERS_STORE[user_id]
+
+    user = db.query(UserModel).filter(UserModel.id == session_record.user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account not found.")
+
     return UserProfile(
-        id=u["id"],
-        name=u["name"],
-        identifier=u["identifier"],
-        auth_type=u["auth_type"],
-        avatar_url=u.get("avatar_url"),
-        created_at=u["created_at"],
+        id=user.id,
+        name=user.name,
+        identifier=user.identifier,
+        auth_type=user.auth_type,
+        avatar_url=user.avatar_url,
+        created_at=user.created_at,
     )
 
 
@@ -403,33 +446,49 @@ async def get_current_user(token: str):
 # ---------------------------------------------------------------------------
 
 @router.get("/projects", response_model=List[ProjectItem])
-async def list_user_projects(user_id: str):
+async def list_user_projects(user_id: str, db: Session = Depends(get_db)):
     """Return projects belonging to the given user."""
-    projects = USER_PROJECTS.get(user_id, [])
+    projects = db.query(ProjectModel).filter(ProjectModel.user_id == user_id).order_by(ProjectModel.created_at.desc()).all()
+
     if not projects:
+        now_iso = datetime.now(timezone.utc).isoformat()
         starter_projects = [
-            {
-                "id": f"proj_sample_churn_{user_id[:6]}",
-                "user_id": user_id,
-                "name": "Customer Churn & Retention Model",
-                "description": "Exploratory analysis and root-cause drivers for SaaS subscription drop-off.",
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "dataset_id": "sample_churn",
-                "status": "active",
-            },
-            {
-                "id": f"proj_sample_retail_{user_id[:6]}",
-                "user_id": user_id,
-                "name": "Omnichannel Retail Star Schema",
-                "description": "DuckDB star schema modeling with verified DAX measures.",
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "dataset_id": "sample_retail",
-                "status": "active",
-            }
+            ProjectModel(
+                id=f"proj_sample_churn_{user_id[:6]}",
+                user_id=user_id,
+                name="Customer Churn & Retention Model",
+                description="Exploratory analysis and root-cause drivers for SaaS subscription drop-off.",
+                created_at=now_iso,
+                dataset_id="sample_churn",
+                status="active",
+            ),
+            ProjectModel(
+                id=f"proj_sample_retail_{user_id[:6]}",
+                user_id=user_id,
+                name="Omnichannel Retail Star Schema",
+                description="DuckDB star schema modeling with verified DAX measures.",
+                created_at=now_iso,
+                dataset_id="sample_retail",
+                status="active",
+            )
         ]
-        USER_PROJECTS[user_id] = starter_projects
-        return starter_projects
-    return projects
+        for p in starter_projects:
+            db.add(p)
+        db.commit()
+        projects = starter_projects
+
+    return [
+        ProjectItem(
+            id=p.id,
+            user_id=p.user_id,
+            name=p.name,
+            description=p.description or "",
+            created_at=p.created_at,
+            dataset_id=p.dataset_id,
+            status=p.status or "active",
+        )
+        for p in projects
+    ]
 
 
 class CreateProjectRequest(BaseModel):
@@ -440,36 +499,68 @@ class CreateProjectRequest(BaseModel):
 
 
 @router.post("/projects", response_model=ProjectItem)
-async def create_user_project(req: CreateProjectRequest):
+async def create_user_project(req: CreateProjectRequest, db: Session = Depends(get_db)):
     """Create a new project workspace for the authenticated user."""
     project_id = f"proj_{secrets.token_hex(5)}"
-    project = {
-        "id": project_id,
-        "user_id": req.user_id,
-        "name": req.name.strip(),
-        "description": req.description or "",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "dataset_id": req.dataset_id,
-        "status": "active",
-    }
-    if req.user_id not in USER_PROJECTS:
-        USER_PROJECTS[req.user_id] = []
-    USER_PROJECTS[req.user_id].insert(0, project)
-    return project
+    now_iso = datetime.now(timezone.utc).isoformat()
+    project = ProjectModel(
+        id=project_id,
+        user_id=req.user_id,
+        name=req.name.strip(),
+        description=req.description or "",
+        created_at=now_iso,
+        dataset_id=req.dataset_id,
+        status="active",
+    )
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+
+    return ProjectItem(
+        id=project.id,
+        user_id=project.user_id,
+        name=project.name,
+        description=project.description or "",
+        created_at=project.created_at,
+        dataset_id=project.dataset_id,
+        status=project.status or "active",
+    )
 
 
 @router.delete("/projects/{project_id}")
-async def delete_user_project(project_id: str, user_id: str):
+async def delete_user_project(project_id: str, user_id: str, db: Session = Depends(get_db)):
     """Delete a user's project."""
-    if user_id in USER_PROJECTS:
-        USER_PROJECTS[user_id] = [p for p in USER_PROJECTS[user_id] if p["id"] != project_id]
+    project = db.query(ProjectModel).filter(
+        ProjectModel.id == project_id,
+        ProjectModel.user_id == user_id,
+    ).first()
+    if project:
+        db.delete(project)
+        db.commit()
     return {"success": True, "deleted_id": project_id}
 
 
 @router.get("/chats", response_model=List[ChatSessionItem])
-async def list_user_chats(user_id: str):
+async def list_user_chats(user_id: str, db: Session = Depends(get_db)):
     """List saved chat threads for the user."""
-    return USER_CHATS.get(user_id, [])
+    chat_records = db.query(ChatSessionModel).filter(ChatSessionModel.user_id == user_id).order_by(ChatSessionModel.updated_at.desc()).all()
+    results = []
+    for c in chat_records:
+        try:
+            messages = json.loads(c.messages_json)
+        except Exception:
+            messages = []
+        results.append(
+            ChatSessionItem(
+                id=c.id,
+                user_id=c.user_id,
+                title=c.title,
+                messages=messages,
+                created_at=c.created_at,
+                updated_at=c.updated_at,
+            )
+        )
+    return results
 
 
 class SaveChatRequest(BaseModel):
@@ -480,26 +571,39 @@ class SaveChatRequest(BaseModel):
 
 
 @router.post("/chats", response_model=ChatSessionItem)
-async def save_user_chat(req: SaveChatRequest):
+async def save_user_chat(req: SaveChatRequest, db: Session = Depends(get_db)):
     """Save or update a chat session."""
-    now = datetime.now(timezone.utc).isoformat()
-    if req.user_id not in USER_CHATS:
-        USER_CHATS[req.user_id] = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+    messages_serialized = json.dumps(req.messages)
 
-    for chat in USER_CHATS[req.user_id]:
-        if chat["id"] == req.id:
-            chat["title"] = req.title
-            chat["messages"] = req.messages
-            chat["updated_at"] = now
-            return chat
+    chat = db.query(ChatSessionModel).filter(
+        ChatSessionModel.id == req.id,
+        ChatSessionModel.user_id == req.user_id,
+    ).first()
 
-    new_chat = {
-        "id": req.id,
-        "user_id": req.user_id,
-        "title": req.title,
-        "messages": req.messages,
-        "created_at": now,
-        "updated_at": now,
-    }
-    USER_CHATS[req.user_id].insert(0, new_chat)
-    return new_chat
+    if chat:
+        chat.title = req.title
+        chat.messages_json = messages_serialized
+        chat.updated_at = now_iso
+        db.commit()
+    else:
+        chat = ChatSessionModel(
+            id=req.id,
+            user_id=req.user_id,
+            title=req.title,
+            messages_json=messages_serialized,
+            created_at=now_iso,
+            updated_at=now_iso,
+        )
+        db.add(chat)
+        db.commit()
+        db.refresh(chat)
+
+    return ChatSessionItem(
+        id=chat.id,
+        user_id=chat.user_id,
+        title=chat.title,
+        messages=req.messages,
+        created_at=chat.created_at,
+        updated_at=chat.updated_at,
+    )
