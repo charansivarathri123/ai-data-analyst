@@ -72,12 +72,10 @@ app = FastAPI(
 # CORS Configuration
 # ---------------------------------------------------------------------------
 
-cors_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
-allowed_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
-
+# Allow all web origins (Vercel deployments, custom domains, local development)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins if allowed_origins else ["*"],
+    allow_origin_regex=r"^https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

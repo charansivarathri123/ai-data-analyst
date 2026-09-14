@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { X, RefreshCw, AlertCircle } from "lucide-react";
 import { useAuth } from "./AuthContext";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
 
 export const AuthModal: React.FC = () => {
   const { isAuthModalOpen, closeAuthModal, login } = useAuth();
