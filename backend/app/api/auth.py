@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import UserModel, SessionModel, OTPModel, ProjectModel, ChatSessionModel
+from app.engine.notifications import send_email_otp, send_sms_otp
 
 logger = logging.getLogger("auth")
 
@@ -164,11 +165,20 @@ async def send_otp(req: SendOTPRequest, db: Session = Depends(get_db)):
     print(f"[AUTH] >>> EXPIRES IN: {OTP_EXPIRY_MINUTES} minutes")
     print(f"[AUTH] ===================================================\n")
 
+    # Dispatch real notification based on channel
+    delivery_status_msg = ""
+    if req.channel == "email":
+        sent, delivery_status_msg = send_email_otp(destination, code, user_name=req.name or "")
+    elif req.channel == "mobile":
+        sent, delivery_status_msg = send_sms_otp(destination, code)
+    else:
+        delivery_status_msg = f"Verification code generated for {destination}."
+
     return SendOTPResponse(
         success=True,
         channel=req.channel,
         destination=destination,
-        message=f"Verification code sent to {destination}. Valid for {OTP_EXPIRY_MINUTES} minutes.",
+        message=delivery_status_msg or f"Verification code sent to {destination}. Valid for {OTP_EXPIRY_MINUTES} minutes.",
         expires_in_seconds=OTP_EXPIRY_MINUTES * 60,
         dev_code=code,
     )
