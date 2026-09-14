@@ -8,8 +8,18 @@ Supports dual-mode database access:
 import os
 import logging
 from typing import Generator
+from dotenv import load_dotenv, find_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
+
+# Load environment variables
+load_dotenv(find_dotenv(usecwd=True))
+_root_env = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.env"))
+if os.path.exists(_root_env):
+    load_dotenv(_root_env, override=True)
+_backend_env = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.env"))
+if os.path.exists(_backend_env):
+    load_dotenv(_backend_env, override=True)
 
 logger = logging.getLogger("db")
 
