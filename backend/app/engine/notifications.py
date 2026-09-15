@@ -86,26 +86,36 @@ https://dataanalyst.ai
     smtp_from = os.getenv("SMTP_FROM_EMAIL", smtp_user).strip() or smtp_user
 
     if smtp_user and smtp_password:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = f"DataAnalyst.Ai <{smtp_from}>"
+        msg["To"] = destination_email
+
+        msg.attach(MIMEText(plain_text, "plain"))
+        msg.attach(MIMEText(html_content, "html"))
+
+        # 1. Try SSL port 465 (widely supported through cloud firewalls)
         try:
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = subject
-            msg["From"] = f"DataAnalyst.Ai <{smtp_from}>"
-            msg["To"] = destination_email
+            with smtplib.SMTP_SSL(smtp_host, 465, timeout=10) as server:
+                server.login(smtp_user, smtp_password)
+                server.sendmail(smtp_from, [destination_email], msg.as_string())
+            logger.info(f"Dispatched email via SMTP_SSL (port 465) to {destination_email}")
+            return True, f"Verification email sent to {destination_email}."
+        except Exception as ssl_exc:
+            logger.warning(f"SMTP_SSL 465 failed: {ssl_exc}, attempting TLS 587...")
 
-            msg.attach(MIMEText(plain_text, "plain"))
-            msg.attach(MIMEText(html_content, "html"))
-
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=12) as server:
+        # 2. Try TLS port 587
+        try:
+            with smtplib.SMTP(smtp_host, 587, timeout=10) as server:
                 server.ehlo()
                 server.starttls()
                 server.ehlo()
                 server.login(smtp_user, smtp_password)
                 server.sendmail(smtp_from, [destination_email], msg.as_string())
-
-            logger.info(f"Dispatched professional email via SMTP to {destination_email}")
+            logger.info(f"Dispatched email via SMTP (port 587) to {destination_email}")
             return True, f"Verification email sent to {destination_email}."
         except Exception as exc:
-            logger.error(f"Failed to send email via SMTP ({smtp_host}): {exc}")
+            logger.error(f"SMTP delivery error: {exc}")
             return False, f"SMTP delivery error: {str(exc)}"
 
     # -----------------------------------------------------------------------

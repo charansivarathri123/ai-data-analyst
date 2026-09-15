@@ -480,26 +480,7 @@ export const AuthModal: React.FC = () => {
         {/* STEP 2: 6-DIGIT OTP VERIFICATION SCREEN */}
         {step === "otp" && (
           <div className="space-y-5">
-            {/* Dev Code Quick Auto-Fill Hint */}
-            {devCodeHint && (
-              <div className="rounded-xl bg-purple-950/40 border border-purple-800/60 p-3 text-center">
-                <span className="text-xs text-purple-300 font-medium">Your Verification Code: </span>
-                <span className="text-sm font-mono font-bold tracking-widest text-purple-200">
-                  {devCodeHint}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const digits = devCodeHint.split("");
-                    setOtpDigits(digits);
-                    verifyOTPCode(devCodeHint);
-                  }}
-                  className="block mx-auto mt-1 text-[11px] text-purple-400 hover:text-purple-200 underline cursor-pointer"
-                >
-                  Click to Auto-Fill & Submit
-                </button>
-              </div>
-            )}
+
 
             {/* 6-Box OTP Inputs */}
             <div className="flex justify-between gap-2 on-paste" onPaste={handlePaste}>

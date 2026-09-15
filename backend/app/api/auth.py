@@ -174,13 +174,16 @@ async def send_otp(req: SendOTPRequest, db: Session = Depends(get_db)):
     else:
         delivery_status_msg = f"Verification code generated for {destination}."
 
+    env = os.getenv("ENVIRONMENT", "production").lower()
+    dev_code_val = code if env in ("development", "dev") else None
+
     return SendOTPResponse(
         success=True,
         channel=req.channel,
         destination=destination,
         message=delivery_status_msg or f"Verification code sent to {destination}. Valid for {OTP_EXPIRY_MINUTES} minutes.",
         expires_in_seconds=OTP_EXPIRY_MINUTES * 60,
-        dev_code=code,
+        dev_code=dev_code_val,
     )
 
 
