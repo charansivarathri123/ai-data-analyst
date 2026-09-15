@@ -31,8 +31,7 @@ import {
 import { useAuth } from "./AuthContext";
 import { ThemeToggle } from "./ThemeToggle";
 import { api, RecommendedQuestion } from "../lib/api";
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+import { API_BASE } from "../lib/config";
 
 interface Message {
   id: string;

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { X, RefreshCw, AlertCircle, Mail, Phone, ArrowLeft, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { useAuth } from "./AuthContext";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+import { API_BASE } from "../lib/config";
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 
 type AuthChannel = "email" | "mobile";

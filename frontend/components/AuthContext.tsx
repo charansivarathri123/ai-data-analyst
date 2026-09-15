@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { API_BASE } from "../lib/config";
 
 export interface UserProfile {
   id: string;
@@ -38,8 +39,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
 
 const STORAGE_KEY_USER = "bi_studio_user";
 const STORAGE_KEY_TOKEN = "bi_studio_token";
