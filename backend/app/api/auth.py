@@ -10,6 +10,7 @@ Backed by persistent database (SQLAlchemy - SQLite/PostgreSQL):
 7. User-scoped chat threads persistence
 """
 
+import os
 import json
 import logging
 import secrets
