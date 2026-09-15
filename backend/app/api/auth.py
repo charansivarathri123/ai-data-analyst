@@ -17,7 +17,7 @@ import string
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -119,12 +119,27 @@ def generate_otp_code() -> str:
     return "".join(secrets.choice(string.digits) for _ in range(6))
 
 
+def _dispatch_notification_background(channel: str, destination: str, code: str, user_name: str):
+    """Executes notification dispatch in background so HTTP response is returned immediately."""
+    try:
+        if channel == "email":
+            send_email_otp(destination, code, user_name=user_name)
+        elif channel == "mobile":
+            send_sms_otp(destination, code)
+    except Exception as exc:
+        print(f"[AUTH ERROR] Background OTP dispatch failed: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
 @router.post("/otp/send", response_model=SendOTPResponse)
-async def send_otp(req: SendOTPRequest, db: Session = Depends(get_db)):
+async def send_otp(
+    req: SendOTPRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
     """Generate and dispatch a 6-digit OTP code to mobile number or email."""
     destination = req.destination.strip().lower() if req.channel == "email" else req.destination.strip()
     if not destination:
@@ -165,23 +180,29 @@ async def send_otp(req: SendOTPRequest, db: Session = Depends(get_db)):
     print(f"[AUTH] >>> EXPIRES IN: {OTP_EXPIRY_MINUTES} minutes")
     print(f"[AUTH] ===================================================\n")
 
-    # Dispatch real notification based on channel
-    delivery_status_msg = ""
-    if req.channel == "email":
-        sent, delivery_status_msg = send_email_otp(destination, code, user_name=req.name or "")
-    elif req.channel == "mobile":
-        sent, delivery_status_msg = send_sms_otp(destination, code)
-    else:
-        delivery_status_msg = f"Verification code generated for {destination}."
+    # Dispatch notification in background to guarantee instant <200ms HTTP response
+    background_tasks.add_task(
+        _dispatch_notification_background,
+        req.channel,
+        destination,
+        code,
+        req.name or "",
+    )
 
     env = os.getenv("ENVIRONMENT", "production").lower()
     dev_code_val = code if env in ("development", "dev") else None
+
+    delivery_status_msg = (
+        f"Verification code sent to {destination}. Please check your inbox."
+        if req.channel == "email"
+        else f"Verification code sent to {destination} via SMS."
+    )
 
     return SendOTPResponse(
         success=True,
         channel=req.channel,
         destination=destination,
-        message=delivery_status_msg or f"Verification code sent to {destination}. Valid for {OTP_EXPIRY_MINUTES} minutes.",
+        message=delivery_status_msg,
         expires_in_seconds=OTP_EXPIRY_MINUTES * 60,
         dev_code=dev_code_val,
     )

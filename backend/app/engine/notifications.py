@@ -46,12 +46,12 @@ https://dataanalyst.ai
     html_content = _generate_professional_email_html(code, user_name)
 
     # -----------------------------------------------------------------------
-    # 1. Try Resend REST API (if configured)
+    # 1. Try Resend REST API (Port 443 - Recommended for Cloud Hosts like Render)
     # -----------------------------------------------------------------------
     resend_api_key = os.getenv("RESEND_API_KEY", "").strip()
     if resend_api_key:
         try:
-            from_email = os.getenv("RESEND_FROM_EMAIL", "verify@dataanalyst.ai")
+            from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
             payload = json.dumps({
                 "from": f"DataAnalyst.Ai <{from_email}>",
                 "to": [destination_email],
@@ -66,15 +66,48 @@ https://dataanalyst.ai
                 headers={
                     "Authorization": f"Bearer {resend_api_key}",
                     "Content-Type": "application/json",
+                    "User-Agent": "DataAnalystAI/1.0",
                 },
                 method="POST"
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=8) as resp:
                 if resp.status in (200, 201):
                     logger.info(f"Dispatched professional email via Resend to {destination_email}")
                     return True, f"Verification email sent to {destination_email}."
         except Exception as exc:
             logger.error(f"Failed to send email via Resend: {exc}")
+
+    # -----------------------------------------------------------------------
+    # 2. Try Brevo REST API (Port 443 - HTTPS)
+    # -----------------------------------------------------------------------
+    brevo_api_key = os.getenv("BREVO_API_KEY", "").strip()
+    if brevo_api_key:
+        try:
+            brevo_sender = os.getenv("BREVO_SENDER_EMAIL", destination_email)
+            brevo_payload = json.dumps({
+                "sender": {"name": "DataAnalyst.Ai", "email": brevo_sender},
+                "to": [{"email": destination_email}],
+                "subject": subject,
+                "htmlContent": html_content,
+                "textContent": plain_text,
+            }).encode("utf-8")
+
+            brevo_req = urllib.request.Request(
+                "https://api.brevo.com/v3/smtp/email",
+                data=brevo_payload,
+                headers={
+                    "api-key": brevo_api_key,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(brevo_req, timeout=8) as resp:
+                if resp.status in (200, 201):
+                    logger.info(f"Dispatched professional email via Brevo REST API to {destination_email}")
+                    return True, f"Verification email sent to {destination_email}."
+        except Exception as exc:
+            logger.error(f"Failed to send email via Brevo REST API: {exc}")
 
     # -----------------------------------------------------------------------
     # 2. Try Standard SMTP (Gmail, Outlook, Brevo, AWS SES)
@@ -96,7 +129,7 @@ https://dataanalyst.ai
 
         # 1. Try SSL port 465 (widely supported through cloud firewalls)
         try:
-            with smtplib.SMTP_SSL(smtp_host, 465, timeout=10) as server:
+            with smtplib.SMTP_SSL(smtp_host, 465, timeout=3) as server:
                 server.login(smtp_user, smtp_password)
                 server.sendmail(smtp_from, [destination_email], msg.as_string())
             logger.info(f"Dispatched email via SMTP_SSL (port 465) to {destination_email}")
@@ -106,7 +139,7 @@ https://dataanalyst.ai
 
         # 2. Try TLS port 587
         try:
-            with smtplib.SMTP(smtp_host, 587, timeout=10) as server:
+            with smtplib.SMTP(smtp_host, 587, timeout=3) as server:
                 server.ehlo()
                 server.starttls()
                 server.ehlo()
