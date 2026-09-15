@@ -33,7 +33,7 @@ interface AuthContextType {
   closeAuthModal: () => void;
   login: (user: UserProfile, token: string) => void;
   logout: () => void;
-  createProject: (name: string, description?: string) => Promise<ProjectItem | null>;
+  createProject: (name: string, description?: string, dataset_id?: string | null) => Promise<ProjectItem | null>;
   deleteProject: (id: string) => Promise<void>;
   setActiveProjectId: (id: string | null) => void;
 }
@@ -51,9 +51,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
 
-  // Load persisted session on initial mount
+  // Save projects array to localStorage
+  const saveProjectsToStorage = (updated: ProjectItem[]) => {
+    try {
+      localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(updated));
+    } catch (e) {
+      console.warn("Failed to persist user projects to localStorage:", e);
+    }
+  };
+
+  // Load persisted session and user projects on initial mount
   useEffect(() => {
     try {
+      // 1. Load user's previous projects from localStorage
+      const storedProjects = localStorage.getItem(STORAGE_KEY_PROJECTS);
+      if (storedProjects) {
+        try {
+          const parsed = JSON.parse(storedProjects);
+          // Strictly remove legacy sample/demo projects so only user's real projects are shown
+          const userOnlyProjects = Array.isArray(parsed)
+            ? parsed.filter(
+                (p: ProjectItem) =>
+                  p &&
+                  p.id !== "proj_sample_churn" &&
+                  p.id !== "proj_sample_retail" &&
+                  p.name !== "Customer Churn & Retention" &&
+                  p.name !== "Omnichannel Retail Star Schema"
+              )
+            : [];
+          setProjects(userOnlyProjects);
+          saveProjectsToStorage(userOnlyProjects);
+          if (userOnlyProjects.length > 0) {
+            setActiveProjectId(userOnlyProjects[0].id);
+          }
+        } catch (e) {
+          console.error("Failed to parse stored projects:", e);
+        }
+      } else {
+        // No previous projects: start clean with empty array
+        setProjects([]);
+      }
+
+      // 2. Load authenticated session if present
       const storedUser = localStorage.getItem(STORAGE_KEY_USER);
       const storedToken = localStorage.getItem(STORAGE_KEY_TOKEN);
       if (storedUser && storedToken) {
@@ -61,28 +100,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(parsedUser);
         setToken(storedToken);
         loadUserProjects(parsedUser.id);
-      } else {
-        // Provide starter projects for guest exploration
-        const defaultProjects: ProjectItem[] = [
-          {
-            id: "proj_sample_churn",
-            user_id: "guest",
-            name: "Customer Churn & Retention",
-            description: "Root-cause driver analysis on subscription drop-off",
-            created_at: new Date().toISOString(),
-            status: "active",
-          },
-          {
-            id: "proj_sample_retail",
-            user_id: "guest",
-            name: "Omnichannel Retail Star Schema",
-            description: "DuckDB facts & dimensions modeling with verified DAX",
-            created_at: new Date().toISOString(),
-            status: "active",
-          },
-        ];
-        setProjects(defaultProjects);
-        setActiveProjectId(defaultProjects[0].id);
       }
     } catch (e) {
       console.error("Failed to load stored auth session:", e);
@@ -94,9 +111,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await fetch(`${API_BASE}/api/auth/projects?user_id=${userId}`);
       if (res.ok) {
         const data = await res.json();
-        setProjects(data);
-        if (data.length > 0 && !activeProjectId) {
-          setActiveProjectId(data[0].id);
+        const userOnlyProjects = Array.isArray(data)
+          ? data.filter(
+              (p: ProjectItem) =>
+                p &&
+                p.id !== "proj_sample_churn" &&
+                p.id !== "proj_sample_retail" &&
+                p.name !== "Customer Churn & Retention" &&
+                p.name !== "Omnichannel Retail Star Schema"
+            )
+          : [];
+        setProjects(userOnlyProjects);
+        saveProjectsToStorage(userOnlyProjects);
+        if (userOnlyProjects.length > 0 && !activeProjectId) {
+          setActiveProjectId(userOnlyProjects[0].id);
         }
       }
     } catch (err) {
@@ -129,17 +157,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const createProject = async (name: string, description?: string): Promise<ProjectItem | null> => {
+  const createProject = async (
+    name: string,
+    description?: string,
+    dataset_id?: string | null
+  ): Promise<ProjectItem | null> => {
     const userId = user ? user.id : "guest";
+
     try {
       const res = await fetch(`${API_BASE}/api/auth/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, name, description: description || "" }),
+        body: JSON.stringify({
+          user_id: userId,
+          name,
+          description: description || "",
+          dataset_id: dataset_id || null,
+        }),
       });
       if (res.ok) {
         const newProj = await res.json();
-        setProjects((prev) => [newProj, ...prev]);
+        setProjects((prev) => {
+          const updated = [newProj, ...prev];
+          saveProjectsToStorage(updated);
+          return updated;
+        });
         setActiveProjectId(newProj.id);
         return newProj;
       }
@@ -147,16 +189,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn("Using local project creation fallback:", e);
     }
 
-    // Local fallback
+    // Local fallback project
     const fallbackProj: ProjectItem = {
       id: `proj_${Date.now()}`,
       user_id: userId,
       name,
       description: description || "",
       created_at: new Date().toISOString(),
+      dataset_id: dataset_id || null,
       status: "active",
     };
-    setProjects((prev) => [fallbackProj, ...prev]);
+    setProjects((prev) => {
+      const updated = [fallbackProj, ...prev];
+      saveProjectsToStorage(updated);
+      return updated;
+    });
     setActiveProjectId(fallbackProj.id);
     return fallbackProj;
   };
@@ -168,11 +215,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) {
       console.warn("Could not delete remote project:", e);
     }
-    setProjects((prev) => prev.filter((p) => p.id !== id));
-    if (activeProjectId === id) {
-      const remaining = projects.filter((p) => p.id !== id);
-      setActiveProjectId(remaining.length > 0 ? remaining[0].id : null);
-    }
+
+    setProjects((prev) => {
+      const remaining = prev.filter((p) => p.id !== id);
+      saveProjectsToStorage(remaining);
+      if (activeProjectId === id) {
+        setActiveProjectId(remaining.length > 0 ? remaining[0].id : null);
+      }
+      return remaining;
+    });
   };
 
   return (
@@ -205,3 +256,5 @@ export const useAuth = () => {
   }
   return context;
 };
+
+export default AuthProvider;

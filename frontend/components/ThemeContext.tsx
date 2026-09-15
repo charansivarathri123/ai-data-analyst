@@ -15,7 +15,8 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const THEME_STORAGE_KEY = "bi_studio_theme";
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [theme, setThemeState] = useState<ThemeMode>("light");
+  // Dark-first: default is dark
+  const [theme, setThemeState] = useState<ThemeMode>("dark");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -24,11 +25,13 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as ThemeMode | null;
       if (savedTheme === "dark" || savedTheme === "light") {
         setThemeState(savedTheme);
-        document.documentElement.classList.toggle("dark", savedTheme === "dark");
-      } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
-        setThemeState("dark");
-        document.documentElement.classList.add("dark");
+        // Dark is default (no class). Light mode adds `.light` class.
+        document.documentElement.classList.toggle("light", savedTheme === "light");
+      } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) {
+        setThemeState("light");
+        document.documentElement.classList.add("light");
       }
+      // If no preference detected, stays dark (no class needed)
     } catch (e) {
       console.warn("Unable to access localStorage for theme preference:", e);
     }
@@ -38,7 +41,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setThemeState(newTheme);
     try {
       localStorage.setItem(THEME_STORAGE_KEY, newTheme);
-      document.documentElement.classList.toggle("dark", newTheme === "dark");
+      // Dark is default (no class). Light adds `.light`.
+      document.documentElement.classList.toggle("light", newTheme === "light");
     } catch (e) {
       console.warn("Unable to save theme preference:", e);
     }

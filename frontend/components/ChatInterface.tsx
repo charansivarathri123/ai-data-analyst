@@ -1,23 +1,12 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import {
-  Send,
   Sparkles,
-  Bot,
-  User,
-  RefreshCw,
-  Zap,
   ArrowUp,
   Database,
-  BarChart2,
-  Cpu,
-  Layers,
-  FileCode,
-  CornerDownLeft,
-  Upload,
   Paperclip,
-  Plus,
   X,
   FileSpreadsheet,
   AlertCircle,
@@ -26,12 +15,28 @@ import {
   Copy,
   Check,
   CornerDownRight,
-  MoreHorizontal,
+  RotateCcw,
+  ExternalLink,
+  Cpu,
+  ArrowRight,
+  RefreshCw,
+  FileText
 } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import { ThemeToggle } from "./ThemeToggle";
 import { api, RecommendedQuestion } from "../lib/api";
 import { API_BASE } from "../lib/config";
+import {
+  fadeUp,
+  fadeIn,
+  staggerContainer,
+  staggerItem,
+  pressScale,
+  usePrefersReducedMotion,
+  safeVariants,
+  blockReveal
+} from "@/lib/motion";
+import { InteractiveDotGrid } from "@/components/ui/InteractiveDotGrid";
 
 interface Message {
   id: string;
@@ -54,7 +59,22 @@ interface ChatInterfaceProps {
   resetTrigger?: number;
 }
 
-// Custom CodeBlock with Copy button, header language label, and dark syntax style matching reference UI
+// Starter query chips
+const STARTER_CHIPS = [
+  "Which product categories are driving margin erosion?",
+  "Show me quarterly revenue trend with YoY comparison",
+  "What are the top 5 root causes of customer churn?",
+];
+
+// In-flight progression steps during streaming
+const PROGRESS_STEPS = [
+  "Parsing analytical hypothesis...",
+  "Running DuckDB queries in-memory...",
+  "Attributing key drivers & variance...",
+  "Synthesizing analytical write-up...",
+];
+
+// Custom CodeBlock with Copy button, header language label, and dark syntax style
 const CodeBlock: React.FC<{ language: string; code: string }> = ({ language, code }) => {
   const [copied, setCopied] = useState(false);
 
@@ -65,37 +85,41 @@ const CodeBlock: React.FC<{ language: string; code: string }> = ({ language, cod
   };
 
   return (
-    <div className="rounded-2xl overflow-hidden bg-[#1e1e1e] dark:bg-[#18181b] border border-zinc-700/60 shadow-md my-3 font-mono text-xs sm:text-sm">
-      <div className="flex items-center justify-between px-4 py-2.5 bg-[#252526] dark:bg-[#202023] border-b border-zinc-700/60 text-zinc-300">
-        <span className="capitalize font-semibold text-xs text-zinc-300 tracking-wide">
-          {language || "code"}
+    <div className="rounded-xl overflow-hidden bg-surface-2 border border-b-subtle shadow-subtle my-3.5 font-mono text-xs">
+      <div className="flex items-center justify-between px-4 py-2 bg-surface-3 border-b border-b-subtle text-t-secondary">
+        <span className="capitalize font-mono font-medium text-micro text-t-secondary tracking-wider">
+          {language || "sql"}
         </span>
         <button
+          type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-white/10"
+          className="flex items-center gap-1.5 text-micro text-t-secondary hover:text-t-primary transition-colors px-2 py-0.5 rounded hover:bg-surface-2"
           title="Copy code"
         >
           {copied ? (
             <>
-              <Check className="h-3.5 w-3.5 text-emerald-400" />
-              <span className="text-[11px] text-emerald-400 font-sans">Copied</span>
+              <Check className="h-3 w-3 text-accent-cool" />
+              <span className="text-accent-cool font-sans">Copied</span>
             </>
           ) : (
             <>
-              <Copy className="h-3.5 w-3.5" />
-              <span className="text-[11px] font-sans">Copy</span>
+              <Copy className="h-3 w-3" />
+              <span className="font-sans">Copy</span>
             </>
           )}
         </button>
       </div>
-      <pre className="p-4 overflow-x-auto text-zinc-100 leading-relaxed font-mono selection:bg-accent-violet/30">
+      <pre className="p-4 overflow-x-auto text-t-primary leading-relaxed font-mono tabular-nums custom-scrollbar">
         <code>{code}</code>
       </pre>
     </div>
   );
 };
 
-// Formatter for Assistant responses: parses fenced code blocks, key features, and next steps cards
+// Formatter for Executive Memo Assistant responses:
+// Uses Source Serif 4 for body copy (~16px, line-height 1.65, max-w ~68ch)
+// Uses UI Sans for in-answer subheadings (~14px, medium weight)
+// Uses Tabular Monospace for inline figures and numbers
 const AssistantMessageContent: React.FC<{
   content: string;
   onSendMessage: (prompt: string) => void;
@@ -103,6 +127,7 @@ const AssistantMessageContent: React.FC<{
 }> = ({ content, onSendMessage, isStreaming }) => {
   const [copiedResponse, setCopiedResponse] = useState(false);
   const [feedback, setFeedback] = useState<"up" | "down" | null>(null);
+  const prefersReduced = usePrefersReducedMotion();
 
   const handleCopyAll = () => {
     navigator.clipboard.writeText(content);
@@ -110,7 +135,7 @@ const AssistantMessageContent: React.FC<{
     setTimeout(() => setCopiedResponse(false), 2000);
   };
 
-  // Parse markdown code blocks ```lang ... ```
+  // Split markdown code blocks ```lang ... ``` and tables
   const parts: React.ReactNode[] = [];
   const codeRegex = /```(\w+)?\n([\s\S]*?)```/g;
   let lastIndex = 0;
@@ -133,159 +158,187 @@ const AssistantMessageContent: React.FC<{
   }
 
   function renderTextSegment(text: string, keyPrefix: string) {
-    const lines = text.split("\n");
-    const renderedLines: React.ReactNode[] = [];
+    // Break into paragraphs / blocks
+    const paragraphs = text.split(/\n\n+/);
 
-    let inNextSteps = false;
-    const nextStepItems: string[] = [];
+    return (
+      <div key={keyPrefix} className="space-y-3">
+        {paragraphs.map((p, pIdx) => {
+          const trimmed = p.trim();
+          if (!trimmed) return null;
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+          // Check if block is a markdown table
+          if (trimmed.includes("|") && trimmed.includes("-|-")) {
+            return renderTable(trimmed, `${keyPrefix}_tbl_${pIdx}`);
+          }
 
-      // Check if this line is "Next steps for enhancing this..." heading
-      const cleanLine = line.replace(/\*\*/g, "").trim().toLowerCase();
-      if (cleanLine.includes("next steps for enhancing") || cleanLine.startsWith("next steps:") || cleanLine.startsWith("### next steps")) {
-        inNextSteps = true;
-        renderedLines.push(
-          <p key={`${keyPrefix}_line_${i}`} className="font-semibold text-xs sm:text-sm mt-4 mb-2.5 text-primaryText">
-            {line.replace(/^#+\s*/, "").replace(/\*\*/g, "")}
-          </p>
-        );
-        continue;
-      }
-
-      // If we are under next steps and encounter bullet points, collect them for grid cards
-      if (inNextSteps && (line.trim().startsWith("- ") || line.trim().startsWith("* ") || /^\d+\.\s/.test(line.trim()))) {
-        const itemText = line.trim().replace(/^[-*•]|\d+\.\s*/, "").trim();
-        nextStepItems.push(itemText);
-        continue;
-      }
-
-      // Render standard bullet points cleanly with square icons matching reference image
-      if (line.trim().startsWith("- ") || line.trim().startsWith("* ") || line.trim().startsWith("• ")) {
-        const bulletText = line.trim().substring(2);
-        renderedLines.push(
-          <div key={`${keyPrefix}_line_${i}`} className="flex items-start gap-2.5 my-1.5 text-xs sm:text-sm">
-            <span className="h-1.5 w-1.5 rounded-[2px] bg-accent-violet mt-1.5 shrink-0 opacity-80" />
-            <span className="flex-1 leading-relaxed text-primaryText">{renderInlineFormatting(bulletText)}</span>
-          </div>
-        );
-        continue;
-      }
-
-      // Regular paragraph or headings
-      if (line.trim()) {
-        const isHeader = line.startsWith("#");
-        renderedLines.push(
-          <div
-            key={`${keyPrefix}_line_${i}`}
-            className={`${isHeader ? "font-bold text-sm sm:text-base mt-3 mb-1 text-primaryText" : "text-xs sm:text-sm leading-relaxed text-primaryText"}`}
-          >
-            {renderInlineFormatting(line.replace(/^#+\s*/, ""))}
-          </div>
-        );
-      } else {
-        renderedLines.push(<div key={`${keyPrefix}_line_${i}`} className="h-2" />);
-      }
-    }
-
-    // If next steps cards were collected, render them in an interactive grid just like the user's reference image
-    if (nextStepItems.length > 0) {
-      renderedLines.push(
-        <div key={`${keyPrefix}_next_steps_grid`} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 my-3">
-          {nextStepItems.map((step, sIdx) => {
-            // Split title and subtitle if colon exists
-            const [stepTitle, ...rest] = step.split(":");
-            const stepDesc = rest.join(":").trim();
+          // Check if block is a heading
+          if (trimmed.startsWith("#")) {
+            const headingText = trimmed.replace(/^#+\s*/, "");
             return (
-              <button
-                key={sIdx}
-                onClick={() => onSendMessage(stepTitle)}
-                className="group flex flex-col justify-between p-3 rounded-2xl border border-zinc-700/50 bg-[#1e1e1e]/90 hover:bg-[#27272a] text-left transition-all shadow-xs hover:border-zinc-600"
+              <h4
+                key={`${keyPrefix}_p_${pIdx}`}
+                className="font-sans text-caption font-semibold text-t-secondary uppercase tracking-wider mt-4 mb-1"
               >
-                <div>
-                  <div className="text-xs font-semibold text-zinc-100 group-hover:text-white leading-tight">
-                    {stepTitle.replace(/\*\*/g, "")}
-                  </div>
-                  {stepDesc && (
-                    <div className="text-[11px] text-zinc-400 mt-1 line-clamp-2 leading-snug">
-                      {stepDesc.replace(/\*\*/g, "")}
-                    </div>
-                  )}
-                </div>
-                <CornerDownRight className="h-3.5 w-3.5 text-zinc-500 group-hover:text-accent-violet mt-3 self-start transition-colors" />
-              </button>
+                {renderInlineFormatting(headingText)}
+              </h4>
             );
-          })}
-        </div>
-      );
-    }
+          }
 
-    return <div key={keyPrefix}>{renderedLines}</div>;
+          // Standard paragraph: executive memo typography (Serif, 16px, 1.65 line-height, max-w ~68ch)
+          return (
+            <motion.p
+              key={`${keyPrefix}_p_${pIdx}`}
+              variants={safeVariants(blockReveal, prefersReduced)}
+              initial="hidden"
+              animate="visible"
+              className="font-serif text-[16px] leading-[1.68] text-t-primary max-w-[68ch] tracking-normal"
+            >
+              {renderInlineFormatting(trimmed)}
+            </motion.p>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderTable(tableText: string, key: string) {
+    const rows = tableText
+      .split("\n")
+      .map((r) => r.trim())
+      .filter((r) => r.startsWith("|") && r.endsWith("|"));
+
+    if (rows.length < 2) return <p key={key}>{tableText}</p>;
+
+    const headerCols = rows[0]
+      .slice(1, -1)
+      .split("|")
+      .map((c) => c.trim());
+
+    // Skip separator row (rows[1])
+    const bodyRows = rows.slice(2).map((r) =>
+      r
+        .slice(1, -1)
+        .split("|")
+        .map((c) => c.trim())
+    );
+
+    return (
+      <div key={key} className="my-4 overflow-x-auto rounded-xl border border-b-subtle bg-surface-1 shadow-subtle custom-scrollbar">
+        <table className="w-full text-caption text-left border-collapse">
+          <thead>
+            <tr className="border-b border-b-subtle bg-surface-2 font-sans font-semibold text-t-secondary text-micro">
+              {headerCols.map((col, idx) => (
+                <th key={idx} className="py-2 px-3.5 whitespace-nowrap">
+                  {col}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-b-subtle font-mono text-micro tabular-nums">
+            {bodyRows.map((row, rIdx) => (
+              <tr key={rIdx} className="hover:bg-surface-2/60 transition-colors">
+                {row.map((cell, cIdx) => {
+                  const isNumeric = /^[\d$,.%\-+]+$/.test(cell.trim());
+                  return (
+                    <td
+                      key={cIdx}
+                      className={`py-2 px-3.5 whitespace-nowrap text-t-primary ${
+                        isNumeric ? "text-right font-medium" : "text-left"
+                      }`}
+                    >
+                      {cell}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
   }
 
   function renderInlineFormatting(str: string): React.ReactNode {
-    // Bold and inline code formatting
-    const boldParts = str.split(/(\*\*.*?\*\*|`.*?`)/g);
-    return boldParts.map((bp, bpIdx) => {
-      if (bp.startsWith("**") && bp.endsWith("**")) {
-        return <strong key={bpIdx} className="font-semibold text-primaryText">{bp.slice(2, -2)}</strong>;
-      }
-      if (bp.startsWith("`") && bp.endsWith("`")) {
+    // Bold, inline code, and key metrics pill
+    const parts = str.split(/(\*\*.*?\*\*|`.*?`|\b\d+(?:,\d+)*(?:\.\d+)?%?\b)/g);
+    return parts.map((part, idx) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
         return (
-          <code key={bpIdx} className="px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 font-mono text-xs text-accent-violet font-medium">
-            {bp.slice(1, -1)}
+          <strong key={idx} className="font-semibold font-sans text-t-primary">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      if (part.startsWith("`") && part.endsWith("`")) {
+        return (
+          <code
+            key={idx}
+            className="px-1.5 py-0.5 rounded bg-surface-2 font-mono text-micro text-accent-warm font-medium border border-b-subtle"
+          >
+            {part.slice(1, -1)}
           </code>
         );
       }
-      return bp;
+      // Highlight metrics with subtle warm amber pill
+      if (/^\b\d+(?:,\d+)*(?:\.\d+)?%?\b$/.test(part) && part.length >= 2) {
+        return (
+          <span
+            key={idx}
+            className="inline-block px-1 py-0.5 rounded bg-accent-warm/15 text-accent-warm font-mono text-micro font-medium tabular-nums mx-0.5"
+          >
+            {part}
+          </span>
+        );
+      }
+      return part;
     });
   }
 
   return (
-    <div className="space-y-3 w-full">
-      <div className="space-y-2">{parts}</div>
+    <div className="group space-y-3 w-full">
+      <div className="space-y-3">{parts}</div>
 
-      {/* Action Footer matching reference UI: Thumbs up, Thumbs down, Copy, Retry/Refresh */}
+      {/* Hover-revealed message action toolbar (opacity fade on hover/focus) */}
       {!isStreaming && content && (
-        <div className="flex items-center gap-2 pt-2 border-t border-subtleBorder/40 dark:border-zinc-800 text-mutedText text-xs">
+        <div className="flex items-center gap-1.5 pt-2 text-t-secondary text-micro opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200">
           <button
+            type="button"
             onClick={() => setFeedback(feedback === "up" ? null : "up")}
-            className={`p-1.5 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors ${
-              feedback === "up" ? "text-accent-violet" : "text-mutedText hover:text-primaryText"
+            className={`p-1.5 rounded-md hover:bg-surface-2 transition-colors ${
+              feedback === "up" ? "text-accent-cool" : "text-t-secondary hover:text-t-primary"
             }`}
             title="Helpful"
           >
             <ThumbsUp className="h-3.5 w-3.5" />
           </button>
           <button
+            type="button"
             onClick={() => setFeedback(feedback === "down" ? null : "down")}
-            className={`p-1.5 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors ${
-              feedback === "down" ? "text-red-500" : "text-mutedText hover:text-primaryText"
+            className={`p-1.5 rounded-md hover:bg-surface-2 transition-colors ${
+              feedback === "down" ? "text-accent-danger" : "text-t-secondary hover:text-t-primary"
             }`}
             title="Unhelpful"
           >
             <ThumbsDown className="h-3.5 w-3.5" />
           </button>
           <button
+            type="button"
             onClick={handleCopyAll}
-            className="p-1.5 rounded hover:bg-black/5 dark:hover:bg-white/5 text-mutedText hover:text-primaryText transition-colors flex items-center gap-1"
-            title="Copy entire response"
+            className="p-1.5 rounded-md hover:bg-surface-2 text-t-secondary hover:text-t-primary transition-colors flex items-center gap-1"
+            title="Copy entire answer"
           >
-            {copiedResponse ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+            {copiedResponse ? <Check className="h-3.5 w-3.5 text-accent-cool" /> : <Copy className="h-3.5 w-3.5" />}
+            <span>Copy</span>
           </button>
           <button
+            type="button"
             onClick={() => onSendMessage(content.slice(0, 100))}
-            className="p-1.5 rounded hover:bg-black/5 dark:hover:bg-white/5 text-mutedText hover:text-primaryText transition-colors"
-            title="Follow-up"
+            className="p-1.5 rounded-md hover:bg-surface-2 text-t-secondary hover:text-t-primary transition-colors flex items-center gap-1"
+            title="Follow-up on this analysis"
           >
             <CornerDownRight className="h-3.5 w-3.5" />
-          </button>
-          <button
-            className="p-1.5 rounded hover:bg-black/5 dark:hover:bg-white/5 text-mutedText hover:text-primaryText transition-colors"
-            title="More options"
-          >
-            <MoreHorizontal className="h-3.5 w-3.5" />
+            <span>Follow-up</span>
           </button>
         </div>
       )}
@@ -299,22 +352,60 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   resetTrigger = 0,
 }) => {
   const { user, isAuthenticated, openAuthModal } = useAuth();
+  const prefersReduced = usePrefersReducedMotion();
 
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [inputText, setInputText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamProgressIdx, setStreamProgressIdx] = useState(0);
 
   // Active dataset state & upload status
   const [activeDataset, setActiveDataset] = useState<ActiveDatasetInfo | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Time-of-day greeting & live clock (recomputed every 30s)
+  const [timeGreeting, setTimeGreeting] = useState("Good day");
+  const [currentTimeStr, setCurrentTimeStr] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const bottomFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync active dataset from localStorage and custom window events
+  // Periodically compute time-of-day greeting & live clock
+  useEffect(() => {
+    const updateTimeAndGreeting = () => {
+      const now = new Date();
+      const hour = now.getHours();
+
+      if (hour < 12) setTimeGreeting("Good morning");
+      else if (hour < 18) setTimeGreeting("Good afternoon");
+      else setTimeGreeting("Good evening");
+
+      setCurrentTimeStr(
+        now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      );
+    };
+
+    updateTimeAndGreeting();
+    const interval = setInterval(updateTimeAndGreeting, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Cycle progress steps while streaming
+  useEffect(() => {
+    if (!isStreaming) {
+      setStreamProgressIdx(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setStreamProgressIdx((prev) => (prev + 1) % PROGRESS_STEPS.length);
+    }, 2400);
+    return () => clearInterval(interval);
+  }, [isStreaming]);
+
+  // Sync active dataset from localStorage and custom events
   useEffect(() => {
     const syncActiveDataset = () => {
       try {
@@ -328,7 +419,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           setActiveDataset(null);
         }
       } catch (e) {
-        console.error("Failed to parse active_dataset from localStorage:", e);
+        console.error("Failed to parse active_dataset:", e);
       }
     };
 
@@ -356,7 +447,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, [messages, isStreaming]);
 
-  // Adjust textarea height dynamically
+  // Auto-grow textarea up to 180px then scroll
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -367,7 +458,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, [inputText]);
 
-  // Handle file upload and analysis via backend DuckDB agent
+  // Trigger brief confirmation toast
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Upload file without clearing composer
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
@@ -386,17 +483,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setActiveDataset(datasetInfo);
       localStorage.setItem("active_dataset", JSON.stringify(datasetInfo));
       window.dispatchEvent(new Event("active_dataset_updated"));
-    } catch (err: any) {
+      showToast(`Attached ${file.name} (${res.metadata.row_count.toLocaleString()} rows)`);
+    } catch (err: unknown) {
       console.error("Upload error:", err);
-      setUploadError(err.message || "Failed to upload and analyze dataset");
+      setUploadError(err instanceof Error ? err.message : "Failed to ingest dataset");
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      if (bottomFileInputRef.current) bottomFileInputRef.current.value = "";
     }
   };
 
-  // Handle loading the built-in sample sales dataset
+  // Load sample dataset
   const handleLoadSample = async () => {
     setIsUploading(true);
     setUploadError(null);
@@ -413,15 +510,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setActiveDataset(datasetInfo);
       localStorage.setItem("active_dataset", JSON.stringify(datasetInfo));
       window.dispatchEvent(new Event("active_dataset_updated"));
-    } catch (err: any) {
+      showToast(`Loaded sample_business_sales.csv (${res.metadata.row_count.toLocaleString()} rows)`);
+    } catch (err: unknown) {
       console.error("Sample dataset error:", err);
-      setUploadError(err.message || "Failed to load sample dataset");
+      setUploadError(err instanceof Error ? err.message : "Failed to load sample dataset");
     } finally {
       setIsUploading(false);
     }
   };
 
-  // Clear active dataset
   const handleClearDataset = () => {
     setActiveDataset(null);
     localStorage.removeItem("active_dataset");
@@ -499,21 +596,23 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     )
                   );
                 }
-              } catch (e) {
+              } catch {
                 // Ignore parse errors on partial chunks
               }
             }
           }
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to stream chat:", err);
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === assistantMsgId
             ? {
                 ...msg,
-                content: `⚠️ We encountered an issue connecting to the AI Data Analyst engine: ${err.message || "Network Error"}. Please check your connection or backend server and retry.`,
+                content: `⚠️ Failed to connect to the autonomous analyst engine: ${
+                  err instanceof Error ? err.message : "Network error"
+                }. Please check that the backend is active.`,
               }
             : msg
         )
@@ -532,72 +631,116 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   // =========================================================================
-  // STATE A: Centered Initial Screen (No conversation started)
+  // STATE A: Redesigned Empty State (Welcome + Composer + Sample Shortcut)
   // =========================================================================
   if (messages.length === 0) {
+    const userName = isAuthenticated && user?.name ? user.name.split(" ")[0] : null;
+
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-12 relative overflow-hidden bg-canvas">
-        {/* Ambient Aura Background */}
-        <div className="aura-glow-left -top-20 -left-20" />
-        <div className="aura-glow-right top-10 -right-20" />
+        {/* Interactive Blinking Dot Grid Background reacting to cursor movement */}
+        <InteractiveDotGrid className="absolute inset-0 z-0 pointer-events-none" />
 
-        {/* Top Right Controls (Theme Toggle & Sign In) */}
+        {/* Top Right Controls */}
         <div className="absolute top-5 right-6 z-30 flex items-center gap-2.5">
           <ThemeToggle />
           {!isAuthenticated && (
             <button
+              type="button"
               onClick={openAuthModal}
-              className="text-xs font-semibold px-3 py-1.5 rounded-xl border border-subtleBorder dark:border-zinc-700 bg-white/80 dark:bg-zinc-800 text-primaryText hover:bg-white dark:hover:bg-zinc-700 transition-all shadow-subtle"
+              className="text-micro font-medium px-3 py-1.5 rounded-lg border border-b-subtle bg-surface-1 text-t-primary hover:bg-surface-2 transition-colors shadow-subtle"
             >
               Sign In
             </button>
           )}
         </div>
 
-        <div className="w-full max-w-2xl flex flex-col items-center text-center space-y-5 z-10 animate-in fade-in zoom-in-95 duration-300">
-          {/* Post-Login Welcome Greeting */}
-          <div className="space-y-2">
-            <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-primaryText leading-tight">
-              {isAuthenticated && user ? (
-                <>
-                  Welcome,{" "}
-                  <span className="font-serif italic font-normal text-accent-violet">
-                    {user.name}
-                  </span>
-                </>
-              ) : (
-                <>
-                  Welcome to{" "}
-                  <span className="font-serif italic font-normal text-accent-violet">
-                    DataAnalyst.Ai
-                  </span>
-                </>
-              )}
-            </h1>
-          </div>
-
-          {/* Active Dataset Pill if source is uploaded */}
-          {activeDataset && (
-            <div className="w-full flex items-center justify-between px-3.5 py-2 rounded-xl bg-accent-violet/10 border border-accent-violet/30 text-accent-violet text-xs font-mono animate-in fade-in">
-              <div className="flex items-center gap-2 truncate">
-                <FileSpreadsheet className="h-4 w-4 shrink-0 text-accent-violet" />
-                <span className="font-semibold truncate text-primaryText">{activeDataset.filename}</span>
-                <span className="text-mutedText text-[11px] shrink-0">
-                  ({activeDataset.row_count.toLocaleString()} rows • {activeDataset.column_count} cols)
-                </span>
-              </div>
-              <button
-                onClick={handleClearDataset}
-                className="p-1 text-mutedText hover:text-red-500 rounded transition-colors ml-2"
-                title="Remove dataset"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
+        {/* Confirmation Toast */}
+        <AnimatePresence>
+          {toastMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: -16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -16 }}
+              transition={{ duration: 0.2 }}
+              className="fixed top-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl bg-surface-2 border border-accent-cool/40 shadow-elevated text-caption text-t-primary flex items-center gap-2"
+            >
+              <Check className="h-4 w-4 text-accent-cool" />
+              <span>{toastMessage}</span>
+            </motion.div>
           )}
+        </AnimatePresence>
 
-          {/* Centered Message Input Box (Hints Removed) */}
-          <div className="w-full rounded-2xl bg-white dark:bg-zinc-900 p-3 shadow-floating border border-subtleBorder/90 dark:border-zinc-800 transition-all focus-within:border-dark dark:focus-within:border-accent-violet/60 focus-within:shadow-xl relative text-left">
+        {/* Single Orchestrated Staggered Entrance on First Mount */}
+        <motion.div
+          variants={safeVariants(staggerContainer, prefersReduced)}
+          initial="hidden"
+          animate="visible"
+          className="w-full max-w-2xl flex flex-col items-center text-center space-y-6 z-10"
+        >
+          {/* Element 1: Top Quiet Greeting Line */}
+          <motion.div
+            variants={safeVariants(staggerItem, prefersReduced)}
+            className="flex items-center gap-2 text-micro text-t-secondary font-mono tracking-wide"
+          >
+            <img src="/logo.png" alt="Logo" className="h-4 w-4 rounded object-contain opacity-80" />
+            <span>{timeGreeting}</span>
+            <span className="opacity-40">•</span>
+            <span>{currentTimeStr}</span>
+          </motion.div>
+
+          {/* Element 2: Welcome Headline with Inline Name & Subtext */}
+          <motion.div variants={safeVariants(staggerItem, prefersReduced)} className="space-y-2">
+            <h1 className="text-3xl sm:text-4xl font-bold font-display tracking-tight text-t-primary leading-tight">
+              What are we digging into,{" "}
+              {userName ? (
+                <span className="text-accent-warm font-semibold">{userName}</span>
+              ) : (
+                "today"
+              )}
+              ?
+            </h1>
+            <p className="text-caption text-t-secondary max-w-md mx-auto leading-relaxed">
+              Attach your business dataset to start querying, or explore the built-in sales dataset.
+            </p>
+          </motion.div>
+
+          {/* Element 3: Chat Box Composer with Attached Dataset Chip */}
+          <motion.div
+            variants={safeVariants(staggerItem, prefersReduced)}
+            className="w-full rounded-2xl bg-surface-1 p-3.5 shadow-elevated border border-b-subtle transition-all focus-within:border-b-hover text-left"
+          >
+            {/* Dismissible Attachment Chip above textarea (does not clear composer text) */}
+            <AnimatePresence>
+              {activeDataset && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="mb-2.5 overflow-hidden"
+                >
+                  <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-surface-2 border border-b-subtle text-caption text-t-primary">
+                    <FileSpreadsheet className="h-3.5 w-3.5 text-accent-warm shrink-0" />
+                    <span className="font-mono text-micro font-medium truncate max-w-[240px]">
+                      {activeDataset.filename}
+                    </span>
+                    <span className="text-t-tertiary text-micro font-mono">
+                      • {activeDataset.row_count.toLocaleString()} rows
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleClearDataset}
+                      className="p-0.5 rounded text-t-tertiary hover:text-accent-danger transition-colors ml-1"
+                      title="Remove attachment"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Textarea */}
             <textarea
               ref={textareaRef}
               value={inputText}
@@ -605,11 +748,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               onKeyDown={handleKeyDown}
               placeholder="Ask anything about your data, DuckDB SQL, DAX, or BI metrics..."
               rows={2}
-              className="w-full resize-none bg-transparent px-3 py-2 text-xs sm:text-sm text-primaryText placeholder:text-mutedText/70 focus:outline-none"
+              className="w-full resize-none bg-transparent px-2 text-caption sm:text-body text-t-primary placeholder:text-t-tertiary focus:outline-none custom-scrollbar"
             />
 
-            <div className="flex items-center justify-between pt-2 px-2 border-t border-subtleBorder/60 dark:border-zinc-800">
-              {/* Left Toolbar: Source Attachment Trigger (No Hints) */}
+            {/* Composer Toolbar */}
+            <div className="flex items-center justify-between pt-2.5 px-1 border-t border-b-subtle mt-1">
+              {/* Labeled Toolbar Buttons */}
               <div className="flex items-center gap-2">
                 <input
                   type="file"
@@ -622,115 +766,133 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isUploading}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-mutedText hover:text-primaryText hover:bg-black/5 dark:hover:bg-white/5 transition-all"
-                  title="Upload dataset (CSV, Excel, Parquet)"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-micro font-medium text-t-secondary hover:text-t-primary hover:bg-surface-2 border border-transparent hover:border-b-subtle transition-colors disabled:opacity-40"
+                  title="Upload CSV, XLSX, or Parquet dataset"
                 >
                   {isUploading ? (
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent-violet" />
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent-warm" />
                   ) : (
-                    <Plus className="h-4 w-4 text-accent-violet" />
+                    <Paperclip className="h-3.5 w-3.5" />
                   )}
+                  <span>Attach dataset</span>
                 </button>
+
+                <div className="flex items-center gap-1 text-micro text-t-tertiary font-mono px-2 py-1 rounded bg-surface-2/60 border border-b-subtle hidden sm:flex">
+                  <Cpu className="h-3 w-3 text-accent-cool" />
+                  <span>7 Agents Ready</span>
+                </div>
               </div>
 
-              {/* Right Toolbar: Send Message Button */}
-              <button
+              {/* Send Button: Visually inert until there's input, then animates to accent */}
+              <motion.button
+                type="button"
+                whileTap={pressScale.whileTap}
                 onClick={() => handleSendMessage()}
                 disabled={!inputText.trim() || isStreaming || isUploading}
-                className="flex h-8 w-8 items-center justify-center rounded-xl bg-dark dark:bg-white text-white dark:text-dark hover:bg-dark/90 dark:hover:bg-white/90 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
-                title="Send Message"
+                animate={{
+                  backgroundColor: inputText.trim() ? "var(--accent-warm)" : "var(--surface-3)",
+                  color: inputText.trim() ? "#0A0B0F" : "var(--text-tertiary)",
+                }}
+                transition={{ duration: 0.18 }}
+                className="flex h-8 w-8 items-center justify-center rounded-xl transition-all disabled:cursor-not-allowed shadow-subtle"
+                title="Send message"
               >
                 <ArrowUp className="h-4 w-4" />
-              </button>
+              </motion.button>
             </div>
-          </div>
+          </motion.div>
 
           {/* Upload Error Banner */}
           {uploadError && (
-            <div className="w-full flex items-center gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs">
+            <div className="w-full flex items-center gap-2 p-3 rounded-xl bg-accent-danger/10 border border-accent-danger/30 text-accent-danger text-caption text-left">
               <AlertCircle className="h-4 w-4 shrink-0" />
-              <span className="flex-1 text-left">{uploadError}</span>
+              <span>{uploadError}</span>
             </div>
           )}
 
-          {/* Upload In-Progress State */}
-          {isUploading && (
-            <div className="w-full flex items-center justify-center gap-2 py-4 text-xs text-mutedText animate-pulse">
-              <RefreshCw className="h-4 w-4 animate-spin text-accent-violet" />
-              <span>Analyzing uploaded data schema with DuckDB...</span>
-            </div>
-          )}
-
-          {/* BEFORE UPLOAD: DO NOT SHOW ANY RECOMMENDATIONS! */}
-          {!activeDataset && !isUploading && (
-            <div className="w-full flex flex-col items-center gap-2 pt-1 text-center text-xs">
-              <button
-                onClick={handleLoadSample}
-                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white/70 dark:bg-zinc-800/70 border border-subtleBorder/80 dark:border-zinc-700/80 text-mutedText hover:text-primaryText hover:border-dark/30 shadow-sm transition-all text-xs"
-              >
-                <Database className="h-3.5 w-3.5 text-accent-lime" />
-                <span>Try Sample Sales Data</span>
-              </button>
-            </div>
-          )}
-
-          {/* AFTER UPLOAD: SHOW TAILORED RECOMMENDED QUESTIONS DERIVED FROM ANALYZED DATA */}
-          {activeDataset && !isUploading && activeDataset.recommended_questions.length > 0 && (
-            <div className="w-full space-y-2.5 pt-1 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-[11px] font-mono uppercase tracking-wider text-mutedText">
-                  Recommended Questions for {activeDataset.filename}
-                </span>
-                <span className="text-[10px] font-mono text-accent-violet font-semibold">
-                  {activeDataset.recommended_questions.length} Questions
-                </span>
-              </div>
-
-              <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-left">
-                {activeDataset.recommended_questions.map((item, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleSendMessage(item.prompt)}
-                    className="group flex flex-col p-3 rounded-xl border border-subtleBorder dark:border-zinc-800/80 bg-white/70 dark:bg-zinc-900/60 hover:bg-white dark:hover:bg-zinc-800 hover:border-dark/30 dark:hover:border-zinc-700 hover:shadow-subtle transition-all"
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <Sparkles className="h-3.5 w-3.5 text-accent-violet shrink-0 group-hover:scale-110 transition-transform" />
-                      <span className="text-xs font-semibold text-primaryText group-hover:text-dark dark:group-hover:text-white truncate">
-                        {item.title}
-                      </span>
-                    </div>
-                    <span className="text-[11px] text-mutedText line-clamp-1">
-                      {item.desc}
+          {/* Element 4: Distinct Sample Dataset Shortcut Button */}
+          <motion.div variants={safeVariants(staggerItem, prefersReduced)} className="w-full">
+            <button
+              type="button"
+              onClick={handleLoadSample}
+              disabled={isUploading}
+              className="group w-full flex items-center justify-between p-3.5 rounded-xl border-2 border-dashed border-b-subtle hover:border-accent-warm/70 bg-surface-1/60 hover:bg-surface-2 transition-all text-left shadow-subtle cursor-pointer disabled:opacity-50"
+            >
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-lg bg-surface-2 group-hover:bg-surface-3 border border-b-subtle flex items-center justify-center text-accent-warm transition-colors">
+                  <Database className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-caption font-semibold text-t-primary group-hover:text-accent-warm transition-colors">
+                      Try Sample Retail Sales Dataset
                     </span>
-                  </button>
-                ))}
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-2 border border-b-subtle text-t-secondary font-medium">
+                      .CSV
+                    </span>
+                  </div>
+                  <p className="text-micro font-mono text-t-secondary mt-0.5">
+                    1,000 rows • 7 columns • Revenue, Margin &amp; Return Metrics
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+
+              <div className="flex items-center gap-1.5 text-caption font-medium text-t-secondary group-hover:text-t-primary transition-colors">
+                {isUploading ? (
+                  <RefreshCw className="h-4 w-4 animate-spin text-accent-warm" />
+                ) : (
+                  <>
+                    <span className="text-micro font-mono">Instant Load</span>
+                    <ArrowRight className="h-3.5 w-3.5 transform group-hover:translate-x-1 transition-transform" />
+                  </>
+                )}
+              </div>
+            </button>
+          </motion.div>
+
+          {/* Element 5: Secondary Starter Chips (Lower weight, alternative paths) */}
+          <motion.div
+            variants={safeVariants(staggerItem, prefersReduced)}
+            className="w-full flex flex-wrap items-center justify-center gap-2 pt-1"
+          >
+            {STARTER_CHIPS.map((chip, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  setInputText(chip);
+                  handleSendMessage(chip);
+                }}
+                className="px-3 py-1.5 rounded-full bg-surface-2 hover:bg-surface-3 text-t-secondary hover:text-t-primary text-micro font-medium transition-colors cursor-pointer border border-transparent"
+              >
+                {chip}
+              </button>
+            ))}
+          </motion.div>
+        </motion.div>
       </div>
     );
   }
 
   // =========================================================================
-  // STATE B: Standard Chat Conversation Layout (History + Bottom Input)
+  // STATE B: Conversation Screen (Header + Memo Stream + Bottom Composer)
   // =========================================================================
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-canvas relative">
-      {/* Top Banner */}
-      <header className="shrink-0 h-14 border-b border-subtleBorder/80 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md px-6 flex items-center justify-between z-20">
+      {/* Top Header */}
+      <header className="shrink-0 h-14 border-b border-b-subtle bg-surface-1/90 backdrop-blur-md px-6 flex items-center justify-between z-20">
         <div className="flex items-center gap-2.5">
-          <span className="text-xs font-bold text-primaryText tracking-tight">
-            {isAuthenticated && user ? `Welcome, ${user.name}` : "DataAnalyst.Ai"}
+          <span className="text-caption font-semibold text-t-primary">
+            {isAuthenticated && user ? `Workspace • ${user.name}` : "DataAnalyst.Ai"}
           </span>
-          <span className="text-mutedText text-xs">•</span>
-          <span className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full bg-accent-violet/10 text-accent-violet font-semibold">
-            <Sparkles className="h-3 w-3" />
+          <span className="text-t-tertiary">•</span>
+          <span className="inline-flex items-center gap-1 text-micro font-mono px-2 py-0.5 rounded-full bg-surface-2 text-t-secondary border border-b-subtle">
+            <Sparkles className="h-3 w-3 text-accent-warm" />
             AI Copilot
           </span>
           {activeDataset && (
-            <span className="hidden sm:inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-mutedText border border-subtleBorder dark:border-zinc-700">
-              <FileSpreadsheet className="h-3 w-3 text-accent-violet" />
+            <span className="hidden sm:inline-flex items-center gap-1.5 text-micro font-mono px-2 py-0.5 rounded-md bg-surface-2 text-t-secondary border border-b-subtle">
+              <FileSpreadsheet className="h-3 w-3 text-accent-warm" />
               {activeDataset.filename}
             </span>
           )}
@@ -740,8 +902,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           <ThemeToggle />
           {!isAuthenticated && (
             <button
+              type="button"
               onClick={openAuthModal}
-              className="text-xs font-semibold text-dark dark:text-white hover:underline"
+              className="text-micro font-medium text-t-secondary hover:text-t-primary hover:underline"
             >
               Sign In to save
             </button>
@@ -749,8 +912,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </div>
       </header>
 
-      {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 max-w-4xl w-full mx-auto">
+      {/* Messages Stream Area */}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-7 max-w-4xl w-full mx-auto custom-scrollbar">
         {messages.map((msg, index) => {
           const isUser = msg.role === "user";
           return (
@@ -758,126 +921,102 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               key={msg.id || index}
               className={`flex ${isUser ? "justify-end" : "justify-start"} animate-in fade-in duration-200`}
             >
-              <div
-                className={`group relative text-xs sm:text-sm leading-relaxed ${
-                  isUser
-                    ? "max-w-[80%] sm:max-w-xl rounded-full px-5 py-2.5 bg-zinc-800 text-white shadow-subtle self-end ml-auto"
-                    : "w-full max-w-3xl rounded-2xl p-4 bg-white dark:bg-zinc-900 text-primaryText border border-subtleBorder dark:border-zinc-800/80 shadow-xs"
-                }`}
-              >
-                {/* Content Rendering */}
-                {isUser ? (
-                  <div className="whitespace-pre-wrap font-sans break-words text-xs sm:text-sm">
-                    {msg.content}
-                  </div>
-                ) : (
-                  <div>
-                    {msg.content ? (
-                      <AssistantMessageContent
-                        content={msg.content}
-                        onSendMessage={(prompt) => handleSendMessage(prompt)}
-                        isStreaming={isStreaming && index === messages.length - 1}
-                      />
-                    ) : (
-                      <div className="flex items-center gap-2 text-mutedText py-1">
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent-violet" />
-                        <span className="text-xs italic">Formulating response...</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              {isUser ? (
+                // User Message: UI Sans face inside a right-aligned bubble
+                <div className="max-w-[80%] sm:max-w-md rounded-2xl px-4 py-2.5 bg-surface-2 text-t-primary border border-b-subtle shadow-subtle font-sans text-caption leading-relaxed">
+                  {msg.content}
+                </div>
+              ) : (
+                // Assistant Message: NOT BUBBLED — full column width, no border/background, memo typography
+                <div className="w-full pt-1 pb-4">
+                  {msg.content ? (
+                    <AssistantMessageContent
+                      content={msg.content}
+                      onSendMessage={(prompt) => handleSendMessage(prompt)}
+                      isStreaming={isStreaming && index === messages.length - 1}
+                    />
+                  ) : (
+                    // Labeled Progress Line naming the active step during streaming
+                    <div className="flex items-center gap-2.5 py-3 text-caption text-t-secondary">
+                      <span className="h-2 w-2 rounded-full bg-accent-warm breathing-dot shadow-warm-glow shrink-0" />
+                      <span className="font-mono text-micro text-accent-warm font-medium">
+                        {PROGRESS_STEPS[streamProgressIdx]}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Pinned Bottom Input Box */}
-      <div className="shrink-0 p-4 sm:p-6 bg-gradient-to-t from-canvas via-canvas to-transparent border-t border-subtleBorder/50 dark:border-zinc-800/80">
+      {/* Pinned Bottom Input Bar */}
+      <div className="shrink-0 p-4 sm:p-6 bg-gradient-to-t from-canvas via-canvas to-transparent border-t border-b-subtle">
         <div className="max-w-3xl mx-auto space-y-2">
-          {/* Quick dataset question chips if dataset active */}
-          {activeDataset && activeDataset.recommended_questions.length > 0 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-              <span className="text-[10px] font-mono text-mutedText shrink-0 flex items-center gap-1 mr-1">
-                <Sparkles className="h-3 w-3 text-accent-violet" />
-                Suggestions:
-              </span>
-              {activeDataset.recommended_questions.map((q, qIdx) => (
-                <button
-                  key={qIdx}
-                  onClick={() => handleSendMessage(q.prompt)}
-                  disabled={isStreaming}
-                  className="shrink-0 text-[11px] px-2.5 py-1 rounded-lg border border-subtleBorder dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 text-mutedText hover:text-primaryText hover:border-dark/30 dark:hover:border-zinc-700 transition-all truncate max-w-xs shadow-xs"
-                >
-                  {q.title}
-                </button>
-              ))}
+          {/* Active Dataset Attachment Chip */}
+          {activeDataset && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-2 border border-b-subtle w-fit text-micro text-t-secondary font-mono">
+              <FileSpreadsheet className="h-3 w-3 text-accent-warm" />
+              <span className="truncate max-w-[180px] text-t-primary">{activeDataset.filename}</span>
+              <span>• {activeDataset.row_count.toLocaleString()} rows</span>
+              <button
+                type="button"
+                onClick={handleClearDataset}
+                className="text-t-tertiary hover:text-accent-danger ml-1"
+                title="Detach dataset"
+              >
+                <X className="h-3 w-3" />
+              </button>
             </div>
           )}
 
-          <div className="rounded-2xl bg-white dark:bg-zinc-900 p-2.5 shadow-floating border border-subtleBorder dark:border-zinc-800 focus-within:border-dark dark:focus-within:border-accent-violet/60 transition-all">
+          {/* Composer Box */}
+          <div className="rounded-2xl bg-surface-1 p-2.5 shadow-elevated border border-b-subtle focus-within:border-b-hover transition-all">
             <textarea
               ref={textareaRef}
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Type your question or data analysis request..."
+              placeholder="Type your question or analysis request..."
               rows={1}
-              className="w-full resize-none bg-transparent px-3 py-1.5 text-xs sm:text-sm text-primaryText placeholder:text-mutedText/70 focus:outline-none max-h-32"
+              className="w-full resize-none bg-transparent px-3 py-1.5 text-caption sm:text-body text-t-primary placeholder:text-t-tertiary focus:outline-none max-h-32 custom-scrollbar font-sans"
             />
 
-            <div className="flex items-center justify-between pt-1.5 px-2 border-t border-subtleBorder/40 dark:border-zinc-800">
-              {/* Left Toolbar: Source Attachment (No Hints) */}
+            <div className="flex items-center justify-between pt-1.5 px-2 border-t border-b-subtle mt-1">
               <div className="flex items-center gap-2">
-                <input
-                  type="file"
-                  ref={bottomFileInputRef}
-                  onChange={handleFileUpload}
-                  accept=".csv,.xlsx,.xls,.parquet"
-                  className="hidden"
-                />
                 <button
                   type="button"
-                  onClick={() => bottomFileInputRef.current?.click()}
+                  onClick={() => fileInputRef.current?.click()}
                   disabled={isUploading}
-                  className="flex h-6 w-6 items-center justify-center rounded text-mutedText hover:text-primaryText hover:bg-black/5 dark:hover:bg-white/5 transition-all"
-                  title="Upload dataset (CSV, Excel, Parquet)"
+                  className="flex items-center gap-1 text-micro text-t-secondary hover:text-t-primary transition-colors py-1 px-2 rounded hover:bg-surface-2"
+                  title="Upload dataset"
                 >
-                  {isUploading ? (
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent-violet" />
-                  ) : (
-                    <Plus className="h-4 w-4 text-accent-violet" />
-                  )}
+                  <Paperclip className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Attach</span>
                 </button>
-
-                {activeDataset && (
-                  <div className="flex items-center gap-1 text-[11px] text-mutedText font-mono bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
-                    <span className="truncate max-w-[140px]">{activeDataset.filename}</span>
-                    <button
-                      onClick={handleClearDataset}
-                      className="text-mutedText hover:text-red-500 transition-colors ml-0.5"
-                      title="Clear dataset"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                )}
               </div>
 
-              {/* Right Toolbar: Send Message Button */}
-              <button
+              {/* Send Button */}
+              <motion.button
+                type="button"
+                whileTap={pressScale.whileTap}
                 onClick={() => handleSendMessage()}
                 disabled={!inputText.trim() || isStreaming || isUploading}
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-dark dark:bg-white text-white dark:text-dark hover:bg-dark/90 dark:hover:bg-white/90 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
-                title="Send Message"
+                animate={{
+                  backgroundColor: inputText.trim() ? "var(--accent-warm)" : "var(--surface-3)",
+                  color: inputText.trim() ? "#0A0B0F" : "var(--text-tertiary)",
+                }}
+                className="flex h-7 w-7 items-center justify-center rounded-lg transition-all disabled:cursor-not-allowed shadow-subtle"
+                title="Send message"
               >
                 {isStreaming ? (
-                  <RefreshCw className="h-3 w-3 animate-spin text-accent-lime" />
+                  <RefreshCw className="h-3 w-3 animate-spin text-canvas" />
                 ) : (
                   <ArrowUp className="h-3.5 w-3.5" />
                 )}
-              </button>
+              </motion.button>
             </div>
           </div>
         </div>
@@ -885,3 +1024,5 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     </div>
   );
 };
+
+export default ChatInterface;

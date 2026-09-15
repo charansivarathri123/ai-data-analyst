@@ -2,276 +2,291 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =========================================================================
+   Design Tokens — Dark-first "Analyst Console" palette
+   Dark is the default. `.light` class on <html> swaps to light mode.
+   ========================================================================= */
+
 :root {
-  --surface-canvas: #FAFAFC;
-  --surface-pure: #FFFFFF;
-  --surface-dark: #050405;
-  --card-bg: #FFFFFF;
-  --input-bg: #FFFFFF;
-  --text-primary: #0E0D12;
-  --text-muted: #6B6875;
-  --border-subtle: #E5E4E8;
-  --accent-lime: #D3D05B;
-  --accent-violet: #816EBD;
+  /* Near-black canvas & elevated surface layers */
+  --canvas:           #0A0B0F;
+  --surface-1:        #12131A;  /* Cards, composer, panels */
+  --surface-2:        #181A24;  /* Elevated controls, popovers, tiles */
+  --surface-3:        #202330;  /* Hover highlights, active containers */
+
+  /* 1px Low-opacity borders */
+  --border-subtle:    rgba(255, 255, 255, 0.07);
+  --border-hover:     rgba(255, 255, 255, 0.14);
+  --border-focus:     rgba(233, 162, 59, 0.45);
+
+  /* Functional state colors (Carries state, not decoration) */
+  --accent-warm:      #E9A23B;  /* Amber: running, attention, focus, active */
+  --accent-warm-glow: rgba(233, 162, 59, 0.15);
+
+  --accent-cool:      #7FC6A4;  /* Pale green: complete, verified, success */
+  --accent-cool-glow: rgba(127, 198, 164, 0.15);
+
+  --accent-danger:    #E05252;  /* Crimson: errors, alerts, failed */
+  --accent-danger-glow: rgba(224, 82, 82, 0.15);
+
+  /* Typography color tokens */
+  --text-primary:     #E6E8EE;  /* Crisp high-contrast readable text */
+  --text-secondary:   #8B9BB4;  /* Muted slate-blue: metadata, labels, captions */
+  --text-tertiary:    #505A69;  /* Inactive states, subtle borders, footnotes */
+
+  /* Focus ring */
+  --focus-ring:       0 0 0 2px var(--canvas), 0 0 0 4px var(--accent-warm);
+
+  /* Legacy compatibility aliases */
+  --accent:           var(--accent-warm);
+  --accent-mid:       #7FC6A4;
+  --accent-violet:    #7FC6A4;
+  --accent-glow:      var(--accent-warm-glow);
+  --status-success:   var(--accent-cool);
+  --status-warning:   var(--accent-warm);
+  --status-error:     var(--accent-danger);
+  --status-info:      #4A90E2;
+  --surface-canvas:   var(--canvas);
+  --surface-pure:     var(--surface-1);
+  --card-bg:          var(--surface-1);
+  --input-bg:         var(--surface-1);
+  --accent-lime:      var(--accent-cool);
 }
 
-.dark {
-  --surface-canvas: #09090B;
-  --surface-pure: #121215;
-  --surface-dark: #050405;
-  --card-bg: #18181B;
-  --input-bg: #141416;
-  --text-primary: #F4F4F5;
-  --text-muted: #9CA3AF;
-  --border-subtle: #27272A;
-  --accent-lime: #D3D05B;
-  --accent-violet: #A78BFA;
+/* Light mode token swap (Clean daylight console) */
+.light {
+  --canvas:           #F5F6F9;
+  --surface-1:        #FFFFFF;
+  --surface-2:        #ECEDF2;
+  --surface-3:        #E2E4EB;
+  --border-subtle:    rgba(0, 0, 0, 0.08);
+  --border-hover:     rgba(0, 0, 0, 0.16);
+  --border-focus:     rgba(217, 130, 18, 0.5);
+
+  --accent-warm:      #D98212;
+  --accent-warm-glow: rgba(217, 130, 18, 0.12);
+  --accent-cool:      #2D8A60;
+  --accent-cool-glow: rgba(45, 138, 96, 0.12);
+  --accent-danger:    #D32F2F;
+  --accent-danger-glow: rgba(211, 47, 47, 0.12);
+
+  --text-primary:     #12141A;
+  --text-secondary:   #546274;
+  --text-tertiary:    #8D98A7;
+
+  --accent:           var(--accent-warm);
+  --accent-mid:       var(--accent-cool);
+  --accent-violet:    var(--accent-cool);
+  --accent-glow:      var(--accent-warm-glow);
+  --status-success:   var(--accent-cool);
+  --status-warning:   var(--accent-warm);
+  --status-error:     var(--accent-danger);
+  --status-info:      #2563EB;
+  --surface-canvas:   var(--canvas);
+  --surface-pure:     var(--surface-1);
+  --card-bg:          var(--surface-1);
+  --input-bg:         var(--surface-1);
+  --accent-lime:      var(--accent-cool);
 }
+
+/* =========================================================================
+   Base Typography & Anti-Aliasing
+   ========================================================================= */
 
 body {
-  background-color: var(--surface-canvas);
+  background-color: var(--canvas);
   color: var(--text-primary);
-  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
-  transition: background-color 0.25s ease, color 0.25s ease;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
-/* Glassmorphism surfaces */
-.glass-surface {
-  background: rgba(255, 255, 255, 0.75);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(229, 228, 232, 0.8);
+/* Ensure inputs, textareas, and selects default to dark theme canvas */
+input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+textarea,
+select {
+  background-color: var(--canvas);
+  color: var(--text-primary);
 }
 
-.dark .glass-surface {
-  background: rgba(24, 24, 27, 0.78);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(39, 39, 42, 0.8);
+/* Tabular figures for all monospace numbers */
+.font-mono,
+code,
+pre,
+kbd,
+samp {
+  font-feature-settings: "tnum" on, "zero" on;
 }
 
-.glass-surface-dark {
-  background: rgba(5, 4, 5, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+/* =========================================================================
+   Focus Management
+   ========================================================================= */
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 6px;
 }
 
-/* Dual-spectrum ambient aura gradients */
-.aura-glow-left {
-  position: absolute;
-  width: 500px;
-  height: 500px;
-  border-radius: 9999px;
-  background: radial-gradient(circle, rgba(129, 110, 189, 0.18) 0%, rgba(129, 110, 189, 0) 70%);
-  filter: blur(60px);
-  pointer-events: none;
+/* =========================================================================
+   Scrollbar Styling
+   ========================================================================= */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-.dark .aura-glow-left {
-  background: radial-gradient(circle, rgba(167, 139, 250, 0.14) 0%, rgba(167, 139, 250, 0) 70%);
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.aura-glow-right {
-  position: absolute;
-  width: 550px;
-  height: 550px;
-  border-radius: 9999px;
-  background: radial-gradient(circle, rgba(211, 208, 91, 0.22) 0%, rgba(211, 208, 91, 0) 70%);
-  filter: blur(60px);
-  pointer-events: none;
+::-webkit-scrollbar-thumb {
+  background: var(--border-hover);
+  border-radius: 3px;
 }
 
-.dark .aura-glow-right {
-  background: radial-gradient(circle, rgba(211, 208, 91, 0.12) 0%, rgba(211, 208, 91, 0) 70%);
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
 }
 
-/* ========================================================================= */
-/* Tactile 3D Mechanics & Strict Monochrome + Warm Amber Design System       */
-/* ========================================================================= */
-
-/* Primary CTA Tactile Button (Amber) */
-.btn-3d-amber {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(180deg, #ffcb6b 0%, #f5a623 50%, #d48806 100%);
-  color: #ffffff;
-  font-weight: 600;
-  border-radius: 0.75rem;
-  border: 1px solid #ffcb6b;
-  box-shadow: 0 6px 0 #8a5a10, 0 8px 12px rgba(0, 0, 0, 0.45);
-  transform: translateY(0);
-  transition: all 90ms ease;
-  user-select: none;
-  cursor: pointer;
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
 }
 
-.btn-3d-amber:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 7px 0 #8a5a10, 0 0 16px rgba(245, 166, 35, 0.45), 0 10px 14px rgba(0, 0, 0, 0.5);
-  filter: brightness(1.05);
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.btn-3d-amber:active:not(:disabled) {
-  transform: translateY(6px);
-  box-shadow: 0 0 0 #8a5a10, 0 2px 4px rgba(0, 0, 0, 0.3);
-  transition: all 40ms ease;
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border-hover);
+  border-radius: 3px;
 }
 
-.btn-3d-amber:disabled {
-  background: linear-gradient(180deg, #5c5c5e 0%, #2c2c2e 100%);
-  border-color: #5c5c5e;
-  color: #9a9a9a;
-  box-shadow: none;
-  transform: none;
-  cursor: not-allowed;
-  opacity: 0.55;
+/* =========================================================================
+   Ambient Background Grid
+   ========================================================================= */
+
+.bg-dot-grid {
+  background-image: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.08) 1px,
+    transparent 1px
+  );
+  background-size: 28px 28px;
 }
 
-/* Secondary Raised Tactile Button (Grayscale) */
-.btn-3d-gray {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(180deg, #d4d4d3 0%, #9a9a9a 50%, #5c5c5e 100%);
-  color: #0a0a0b;
-  font-weight: 600;
-  border-radius: 0.75rem;
-  border: 1px solid #d4d4d3;
-  box-shadow: 0 6px 0 #2c2c2e, 0 8px 12px rgba(0, 0, 0, 0.45);
-  transform: translateY(0);
-  transition: all 90ms ease;
-  user-select: none;
-  cursor: pointer;
+.light .bg-dot-grid {
+  background-image: radial-gradient(
+    circle,
+    rgba(0, 0, 0, 0.07) 1px,
+    transparent 1px
+  );
+  background-size: 28px 28px;
 }
 
-.btn-3d-gray:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 7px 0 #2c2c2e, 0 10px 14px rgba(0, 0, 0, 0.5);
-  filter: brightness(1.08);
+/* =========================================================================
+   Gradient Border Utility — Dropzone
+   ========================================================================= */
+
+@property --gradient-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
 }
 
-.btn-3d-gray:active:not(:disabled) {
-  transform: translateY(6px);
-  box-shadow: 0 0 0 #2c2c2e, 0 2px 4px rgba(0, 0, 0, 0.3);
-  transition: all 40ms ease;
+.gradient-border-slow {
+  --gradient-angle: 0deg;
+  border-image: conic-gradient(
+    from var(--gradient-angle),
+    var(--accent-warm) 0%,
+    var(--accent-cool) 33%,
+    transparent 55%,
+    var(--accent-warm) 100%
+  ) 1;
+  animation: gradient-rotate 9s linear infinite;
 }
 
-.btn-3d-gray:disabled {
-  background: linear-gradient(180deg, #3a3a3c 0%, #2c2c2e 100%);
-  border-color: #2c2c2e;
-  color: #5c5c5e;
-  box-shadow: none;
-  transform: none;
-  cursor: not-allowed;
-  opacity: 0.45;
+.gradient-border-fast {
+  --gradient-angle: 0deg;
+  border-image: conic-gradient(
+    from var(--gradient-angle),
+    var(--accent-warm) 0%,
+    var(--accent-cool) 40%,
+    var(--accent-warm) 100%
+  ) 1;
+  animation: gradient-rotate 2.5s linear infinite;
 }
 
-/* Tactile Dark Monochrome Button */
-.btn-3d-dark {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(180deg, #2c2c2e 0%, #19191b 100%);
-  color: #f5f5f4;
-  font-weight: 600;
-  border-radius: 0.75rem;
-  border: 1px solid #5c5c5e;
-  box-shadow: 0 6px 0 #0e0e10, 0 8px 12px rgba(0, 0, 0, 0.45);
-  transform: translateY(0);
-  transition: all 90ms ease;
-  user-select: none;
-  cursor: pointer;
+@keyframes gradient-rotate {
+  to {
+    --gradient-angle: 360deg;
+  }
 }
 
-.btn-3d-dark:hover:not(:disabled) {
-  transform: translateY(-1px);
-  border-color: #9a9a9a;
-  box-shadow: 0 7px 0 #0e0e10, 0 10px 14px rgba(0, 0, 0, 0.5);
-  filter: brightness(1.15);
+/* =========================================================================
+   Breathing Dot Animation
+   ========================================================================= */
+
+.breathing-dot {
+  animation: breathe-dot 2.2s ease-in-out infinite;
 }
 
-.btn-3d-dark:active:not(:disabled) {
-  transform: translateY(6px);
-  box-shadow: 0 0 0 #0e0e10, 0 2px 4px rgba(0, 0, 0, 0.3);
-  transition: all 40ms ease;
+@keyframes breathe-dot {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
 }
 
-.btn-3d-dark:disabled {
-  background: #19191b;
-  border-color: #2c2c2e;
-  color: #5c5c5e;
-  box-shadow: none;
-  transform: none;
-  cursor: not-allowed;
-  opacity: 0.4;
+/* =========================================================================
+   Shimmer Effect for Skeleton States
+   ========================================================================= */
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 0%,
+    var(--surface-3) 50%,
+    var(--surface-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-move 2.2s ease-in-out infinite;
 }
 
-/* Recessed Inset Style (carved groove) */
-.btn-recessed {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: #0e0e10;
-  color: #9a9a9a;
-  border: 1px solid #2c2c2e;
-  border-radius: 0.75rem;
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
-  transition: color 90ms ease, border-color 90ms ease, background-color 90ms ease;
-  cursor: pointer;
+@keyframes shimmer-move {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
-.btn-recessed:hover:not(:disabled) {
-  color: #f5f5f4;
-  border-color: #5c5c5e;
-}
+/* =========================================================================
+   Reduced Motion Global Guard
+   ========================================================================= */
 
-.btn-recessed:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 
-/* Inset pill surface */
-.pill-recessed {
-  background: #0e0e10;
-  border: 1px solid #2c2c2e;
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
-}
+  .breathing-dot,
+  .shimmer {
+    animation: none !important;
+  }
 
-/* Live Status Dot (Amber) */
-.live-dot-amber {
-  background-color: #f5a623;
-  box-shadow: 0 0 8px #f5a623;
+  .gradient-border-slow,
+  .gradient-border-fast {
+    animation: none !important;
+    border-image: none !important;
+    border-color: var(--border-hover) !important;
+  }
 }
-
-/* Pipeline Stage Tiles (Raised 3D) */
-.stage-tile-3d {
-  background: #19191b;
-  border: 1px solid #2c2c2e;
-  box-shadow: 0 6px 0 #0e0e10;
-  transition: all 90ms ease;
-}
-
-.stage-tile-3d-active {
-  background: linear-gradient(180deg, #19191b 0%, rgba(245, 166, 35, 0.12) 100%);
-  border: 1px solid #f5a623;
-  box-shadow: 0 6px 0 #8a5a10, 0 0 14px rgba(245, 166, 35, 0.25);
-}
-
-/* Tab Navigation 3D Amber Pill */
-.tab-pill-active {
-  background: linear-gradient(180deg, #ffcb6b 0%, #f5a623 100%) !important;
-  color: #0a0a0b !important;
-  font-weight: 700 !important;
-  border-radius: 0.5rem;
-  box-shadow: 0 4px 0 #8a5a10, 0 6px 10px rgba(0, 0, 0, 0.4);
-  transform: translateY(-1px);
-}
-
