@@ -80,7 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
             {!isCollapsed && (
               <span className="font-bold text-base tracking-tight text-white truncate">
-                AI Data Analyst
+                DataAnalyst.Ai
               </span>
             )}
           </div>

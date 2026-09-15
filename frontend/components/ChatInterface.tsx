@@ -570,7 +570,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 <>
                   Welcome to{" "}
                   <span className="font-serif italic font-normal text-accent-violet">
-                    AI Data Analyst
+                    DataAnalyst.Ai
                   </span>
                 </>
               )}
@@ -722,7 +722,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       <header className="shrink-0 h-14 border-b border-subtleBorder/80 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md px-6 flex items-center justify-between z-20">
         <div className="flex items-center gap-2.5">
           <span className="text-xs font-bold text-primaryText tracking-tight">
-            {isAuthenticated && user ? `Welcome, ${user.name}` : "AI Data Analyst"}
+            {isAuthenticated && user ? `Welcome, ${user.name}` : "DataAnalyst.Ai"}
           </span>
           <span className="text-mutedText text-xs">•</span>
           <span className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full bg-accent-violet/10 text-accent-violet font-semibold">
