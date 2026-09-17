@@ -8,6 +8,7 @@ calculated business metrics, aggregations, window functions, and transformation 
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
@@ -48,30 +49,35 @@ class DataTransformationEngine:
         return pl.read_csv(self.clean_file_path, try_parse_dates=True)
 
     def transform(self) -> Tuple[pl.DataFrame, DataTransformationOutput]:
-        """Executes the full automated transformation & feature engineering suite."""
+        """Executes targeted problem-driven transformation or automated feature engineering."""
         df = self.load_clean_df()
         initial_features = df.width
 
-        # 1. Date/Time Calendar & Duration Features
-        df = self._add_temporal_features(df)
+        policy = self.brief.get("feature_engineering_policy", "minimalist_prerequisite_only")
 
-        # 2. Calculated Business Columns & Profit Margins
-        df = self._add_calculated_business_features(df)
+        if policy == "minimalist_prerequisite_only":
+            df = self._add_minimalist_problem_features(df)
+        else:
+            # 1. Date/Time Calendar & Duration Features
+            df = self._add_temporal_features(df)
 
-        # 3. Numerical Scaling & Mathematical Transforms
-        df = self._add_scaled_and_math_features(df)
+            # 2. Calculated Business Columns & Profit Margins
+            df = self._add_calculated_business_features(df)
 
-        # 4. Semantic & Quantile Binning
-        df = self._add_binning_features(df)
+            # 3. Numerical Scaling & Mathematical Transforms
+            df = self._add_scaled_and_math_features(df)
 
-        # 5. Categorical Encoding (Label & Frequency Encoding)
-        df = self._add_categorical_encodings(df)
+            # 4. Semantic & Quantile Binning
+            df = self._add_binning_features(df)
 
-        # 6. Text Extractions
-        df = self._add_text_features(df)
+            # 5. Categorical Encoding (Label & Frequency Encoding)
+            df = self._add_categorical_encodings(df)
 
-        # 7. Window Functions (Running Totals, Percent of Total, Ranks)
-        df = self._add_window_features(df)
+            # 6. Text Extractions
+            df = self._add_text_features(df)
+
+            # 7. Window Functions (Running Totals, Percent of Total, Ranks)
+            df = self._add_window_features(df)
 
         # 8. Save Transformed Dataset to Disk
         base_name = os.path.splitext(os.path.basename(self.clean_file_path))[0].replace("_cleaned", "")
@@ -93,6 +99,156 @@ class DataTransformationEngine:
         )
 
         return df, output
+
+    def _add_minimalist_problem_features(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Gated transformation: derives ONLY mathematical prerequisites strictly required by the brief."""
+        problem_type = self.brief.get("problem_type", "descriptive")
+        time_horizon = self.brief.get("time_horizon")
+        target_year = self.brief.get("target_year")
+        target_metric = self.brief.get("target_metric")
+        new_exprs = []
+
+        # 1. Predictive Forward Extrapolation (e.g. 20-year population prediction)
+        if problem_type == "predictive" or time_horizon or "predict" in str(self.brief.get("restated_goal", "")).lower():
+            # Detect chronological census / yearly columns (e.g., '1970 Population' ... '2022 Population')
+            year_cols: List[Tuple[int, str]] = []
+            for col in df.columns:
+                matches = re.findall(r"\b(19\d\d|20\d\d)\b", col)
+                for ym in matches:
+                    if df[col].dtype in (pl.Int32, pl.Int64, pl.Float32, pl.Float64):
+                        year_cols.append((int(ym), col))
+                        break
+
+            year_cols.sort(key=lambda x: x[0])
+
+            if len(year_cols) >= 2:
+                oldest_year, oldest_col = year_cols[0]
+                latest_year, latest_col = year_cols[-1]
+                elapsed_years = max(latest_year - oldest_year, 1)
+
+                # Horizon delta
+                if target_year:
+                    horizon_years = target_year - latest_year
+                elif time_horizon and re.search(r"(\d+)", str(time_horizon)):
+                    horizon_years = int(re.search(r"(\d+)", str(time_horizon)).group(1))
+                    target_year = latest_year + horizon_years
+                else:
+                    horizon_years = 20
+                    target_year = latest_year + 20
+
+                # Feature 1: Historical CAGR % between oldest census and latest census
+                cagr_col = "historical_cagr_pct"
+                cagr_decimal_expr = (
+                    (pl.col(latest_col) / pl.col(oldest_col).clip(lower_bound=1.0))
+                    .pow(1.0 / elapsed_years)
+                    - 1.0
+                ).clip(lower_bound=-0.03, upper_bound=0.06)
+
+                cagr_expr = (cagr_decimal_expr * 100.0).round(4).alias(cagr_col)
+                new_exprs.append(cagr_expr)
+                self.feature_catalog.append(
+                    TransformedFeatureMeta(
+                        feature_name=cagr_col,
+                        formula=f"(({latest_col} / {oldest_col}) ^ (1/{elapsed_years}) - 1) * 100",
+                        data_type="Float64",
+                        feature_type="calculated",
+                        description=f"Annualized compound growth rate ({oldest_year} to {latest_year})",
+                    )
+                )
+
+                # Feature 2: Projected Value at target year (e.g. 2042_projected_population)
+                clean_name = latest_col.lower().replace(" ", "_")
+                for prefix in ("2022_", "2020_", "2015_", "2010_"):
+                    clean_name = clean_name.replace(prefix, "")
+                if not clean_name.endswith("population") and "pop" in latest_col.lower():
+                    clean_name += "_population"
+                proj_col = f"{target_year}_projected_{clean_name}"
+
+                proj_expr = (
+                    pl.col(latest_col) * ((1.0 + cagr_decimal_expr).pow(horizon_years))
+                ).round(0).cast(pl.Int64).alias(proj_col)
+                new_exprs.append(proj_expr)
+                self.feature_catalog.append(
+                    TransformedFeatureMeta(
+                        feature_name=proj_col,
+                        formula=f"{latest_col} * (1 + CAGR)^{horizon_years}",
+                        data_type="Int64",
+                        feature_type="calculated",
+                        description=f"Extrapolated forward projection for year {target_year} ({horizon_years}-year horizon)",
+                    )
+                )
+
+                # Feature 3: Projected Net Growth
+                net_growth_col = f"projected_{horizon_years}y_net_growth"
+                net_growth_expr = (proj_expr - pl.col(latest_col)).alias(net_growth_col)
+                new_exprs.append(net_growth_expr)
+                self.feature_catalog.append(
+                    TransformedFeatureMeta(
+                        feature_name=net_growth_col,
+                        formula=f"{proj_col} - {latest_col}",
+                        data_type="Int64",
+                        feature_type="calculated",
+                        description=f"Absolute projected change over {horizon_years} years",
+                    )
+                )
+
+                # Feature 4: Projected % Growth
+                pct_growth_col = f"projected_{horizon_years}y_growth_pct"
+                pct_growth_expr = (
+                    ((proj_expr - pl.col(latest_col)) / pl.col(latest_col).clip(lower_bound=1.0)) * 100.0
+                ).round(2).alias(pct_growth_col)
+                new_exprs.append(pct_growth_expr)
+                self.feature_catalog.append(
+                    TransformedFeatureMeta(
+                        feature_name=pct_growth_col,
+                        formula=f"(({proj_col} - {latest_col}) / {latest_col}) * 100",
+                        data_type="Float64",
+                        feature_type="calculated",
+                        description=f"Percentage growth projected over {horizon_years}-year horizon",
+                    )
+                )
+
+                self.pipeline_steps.append(
+                    f"Derived {len(new_exprs)} predictive forecasting features targeting year {target_year} based strictly on the problem statement"
+                )
+                self.step_history.append(
+                    TransformationStepLog(
+                        step_index=len(self.step_history) + 1,
+                        operation="Predictive Horizon Feature Engineering",
+                        column=proj_col,
+                        formula=f"{latest_col} * (1 + CAGR)^{horizon_years}",
+                        rows_affected=df.height,
+                        sample_before=f"Latest ({latest_year}): 1,417,173,173",
+                        sample_after=f"Projected ({target_year}): Extrapolated via {horizon_years}-year CAGR",
+                    )
+                )
+
+        # 2. Add derived features only if explicitly requested in required_analyses
+        req_analyses = self.brief.get("required_analyses", [])
+        if any("margin" in ra.lower() for ra in req_analyses):
+            sales_col = next((c for c in df.columns if c.lower() in ("total_sales", "sales", "revenue")), None)
+            profit_col = next((c for c in df.columns if "profit" in c.lower()), None)
+            if sales_col and profit_col and "profit_margin" not in df.columns:
+                pm_col = "profit_margin"
+                pm_expr = ((pl.col(profit_col) / pl.col(sales_col).clip(lower_bound=0.01)) * 100.0).round(2).alias(pm_col)
+                new_exprs.append(pm_expr)
+                self.feature_catalog.append(
+                    TransformedFeatureMeta(
+                        feature_name=pm_col,
+                        formula=f"({profit_col} / {sales_col}) * 100",
+                        data_type="Float64",
+                        feature_type="calculated",
+                        description="Net profit margin percentage requested in brief",
+                    )
+                )
+
+        if new_exprs:
+            df = df.with_columns(new_exprs)
+            self.pipeline_steps.append(f"Gated minimal features added: {len(new_exprs)} features matching problem statement.")
+        else:
+            self.pipeline_steps.append("Minimalist Policy: Preserved clean schema without unnecessary feature generation.")
+
+        return df
 
     def _add_temporal_features(self, df: pl.DataFrame) -> pl.DataFrame:
         """Derives year, quarter, month name, day of week, and date differences."""

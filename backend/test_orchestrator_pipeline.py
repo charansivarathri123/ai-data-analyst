@@ -196,3 +196,111 @@ def test_full_pipeline_brief_propagation():
         elif verdict.revise_agent == "data_visualizer":
             state = data_visualizer_agent(state, brief=brief, revision_note=verdict.revision_note)
             assert state.get("visualization") is not None
+
+
+def test_demographic_predictive_extrapolation_and_minimalist_policy():
+    """Verify common sense, domain metrology, minimalist transforms, and 20-year prediction on population dataset."""
+    pop_file = os.path.abspath(os.path.join(backend_dir, "../data/raw/ds_1789483637_world_population.csv"))
+    assert os.path.exists(pop_file), f"Population dataset not found at {pop_file}"
+
+    profile = profile_dataset_for_orchestrator(pop_file, sample_rows_count=15)
+    prompt = "predict population after 20 years"
+    brief = orchestrate_analysis(business_prompt=prompt, dataset_profile=profile)
+
+    # 1. Common Sense & Domain Metrology Assertions
+    assert brief.dataset_domain == "demographics"
+    assert brief.metric_unit == "people"
+    assert brief.unit_symbol == ""
+    assert "₹" in brief.banned_symbols and "$" in brief.banned_symbols
+    assert any(term in brief.banned_terms for term in ["revenue", "sales", "order", "product", "aov"])
+    assert brief.problem_type == "predictive"
+    assert brief.time_horizon == "20_years_forward"
+    assert brief.target_year == 2042
+    assert brief.target_metric == "2022 Population"
+    assert brief.feature_engineering_policy == "minimalist_prerequisite_only"
+
+    # 2. Minimalist Transformation Policy Test
+    from app.engine.transformer_engine import DataTransformationEngine
+    transformer = DataTransformationEngine(clean_file_path=pop_file, brief=brief.model_dump())
+    df_trans, trans_out = transformer.transform()
+
+    # Must only add prerequisite projection features, not generic transforms
+    assert trans_out.features_created == 4
+    feature_names = [f.feature_name for f in trans_out.feature_catalog]
+    assert "historical_cagr_pct" in feature_names
+    assert "2042_projected_population" in feature_names
+    assert "projected_20y_net_growth" in feature_names
+    assert "projected_20y_growth_pct" in feature_names
+
+    # 3. Domain Adaptive Visualizations Test
+    from app.engine.visualization_engine import DataVisualizationEngine
+    viz_engine = DataVisualizationEngine(dataset_path=trans_out.transformed_file_path, brief=brief.model_dump())
+    viz_out = viz_engine.visualize_all(brief=brief.model_dump())
+
+    # Zero currency symbols or retail words in KPI cards
+    for card in viz_out.kpi_cards:
+        for sym in ["₹", "$", "€"]:
+            assert sym not in card.formatted_value, f"Banned symbol {sym} in {card.formatted_value}"
+        assert "AOV" not in card.title
+        assert "fulfilled sales" not in card.description
+
+    # Forecast Trajectory Chart must exist
+    chart_titles = [c.title for c in viz_out.rendered_charts]
+    assert any("20-Year Extrapolation" in t or "2042" in t for t in chart_titles)
+    assert any("Top 10 Most Populous" in t for t in chart_titles)
+
+    # 4. SQL Engine Clean Schema Test
+    from app.engine.sql_engine import SQLAnalyticsEngine
+    sql_engine = SQLAnalyticsEngine(dataset_path=trans_out.transformed_file_path, brief=brief.model_dump())
+    sql_out = sql_engine.run_default_analytical_suite()
+    assert sql_out.total_queries_run >= 3
+    # No retail query titles
+    for q in sql_out.executed_queries:
+        assert "Products by Revenue" not in q.query_name
+        assert "Payment Method" not in q.query_name
+
+
+def test_problem_statement_mandatory_requirement():
+    """Verify that the pipeline strictly rejects execution if no proper problem statement is provided."""
+    import pytest
+    from pydantic import ValidationError
+    from app.api.pipeline import RunPipelineRequest
+
+    # 1. Empty or whitespace prompt must fail pydantic validation
+    with pytest.raises(ValidationError):
+        RunPipelineRequest(dataset_id="test_ds", business_prompt="")
+
+    with pytest.raises(ValidationError):
+        RunPipelineRequest(dataset_id="test_ds", business_prompt="   ")
+
+    # 2. Too brief / non-substantive prompt must fail pydantic validation
+    with pytest.raises(ValidationError):
+        RunPipelineRequest(dataset_id="test_ds", business_prompt="hi test")
+
+    # 3. Proper substantive statement passes
+    valid_req = RunPipelineRequest(dataset_id="test_ds", business_prompt="Predict population after 20 years")
+    assert valid_req.business_prompt == "Predict population after 20 years"
+
+    # 4. Orchestrator agent node directly fails if given empty or brief prompt in state
+    duck = DuckDBClient()
+    try:
+        metadata = duck.inspect_file(SAMPLE_FILE, "sample_sales")
+    finally:
+        duck.close()
+
+    invalid_state: AgentState = {
+        "session_id": "test_sess_invalid",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "status": "cleaning",
+        "current_agent": "data_cleaner",
+        "business_prompt": "",
+        "target_metric": "",
+        "dataset": metadata.model_dump(),
+        "step_history": [],
+        "retry_count": 0,
+    }
+
+    result_state = orchestrator_agent(invalid_state)
+    assert result_state.get("status") == "failed"
+    assert "proper problem statement is required" in result_state.get("error", "").lower()
+

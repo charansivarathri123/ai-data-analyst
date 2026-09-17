@@ -471,6 +471,47 @@ class AnalysisBrief(BaseModel):
         "predictive",
         "descriptive",
     ] = "descriptive"
+    dataset_domain: Literal[
+        "demographics",
+        "ecommerce",
+        "finance",
+        "healthcare",
+        "saas",
+        "iot",
+        "general_numeric",
+    ] = "general_numeric"
+    metric_unit: str = Field(
+        default="count",
+        description="Physical or semantic unit of the target metric (e.g. 'people', 'currency', 'ratio', 'seconds')",
+    )
+    unit_symbol: str = Field(
+        default="",
+        description="Currency or metric prefix symbol (e.g. '$', '₹', or empty for counts/people)",
+    )
+    banned_terms: List[str] = Field(
+        default_factory=list,
+        description="Inappropriate domain terms strictly banned from output (e.g. ['revenue', 'sales', 'aov'] for demographics)",
+    )
+    banned_symbols: List[str] = Field(
+        default_factory=list,
+        description="Symbols strictly banned from output (e.g. ['₹', '$', '€'] when metric is not currency)",
+    )
+    time_horizon: Optional[str] = Field(
+        default=None,
+        description="Explicit projection time horizon if requested (e.g. '20_years_forward')",
+    )
+    target_year: Optional[int] = Field(
+        default=None,
+        description="Specific future calendar year target if predictive extrapolation is requested (e.g. 2042)",
+    )
+    feature_engineering_policy: Literal[
+        "minimalist_prerequisite_only",
+        "standard",
+        "none",
+    ] = Field(
+        default="minimalist_prerequisite_only",
+        description="Policy gating feature creation: only create features strictly required by problem statement",
+    )
     restated_goal: str = Field(description="Clarified business goal grounded in the dataset")
     target_metric: str = Field(description="Primary focal metric column name")
     key_dimensions: List[str] = Field(default_factory=list, description="Key grouping or slicing columns")

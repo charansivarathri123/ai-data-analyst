@@ -46,14 +46,22 @@ class PowerBIEngine:
         """Constructs Star Schema, authors DAX measures, and builds the downloadable PBIP bundle."""
         df = self.load_df()
 
-        effective_target = (brief.get("target_metric") if brief else None) or target_metric or "gross_revenue"
+        effective_target = (brief.get("target_metric") if brief else None) or target_metric
+        if not effective_target or effective_target not in df.columns:
+            pop_cols = [c for c in df.columns if "pop" in c.lower() and "pct" not in c.lower() and "growth" not in c.lower()]
+            if pop_cols:
+                effective_target = sorted(pop_cols, reverse=True)[0]
+            else:
+                num_cols = [c for c in df.columns if df[c].dtype in (pl.Float32, pl.Float64, pl.Int32, pl.Int64) and "id" not in c.lower() and "rank" not in c.lower()]
+                effective_target = num_cols[0] if num_cols else df.columns[0]
+
         key_dims = (brief.get("key_dimensions") if brief else None) or []
 
         # 1. Separate Fact and Dimensions for Star Schema
         star_schema = self._build_star_schema(df)
 
         # 2. Author Syntactically Verified DAX Measures
-        dax_catalog = self._author_dax_measures(df, effective_target)
+        dax_catalog = self._author_dax_measures(df, effective_target, brief)
 
         # 3. Formulate Visual Specifications
         visual_specs = self._formulate_visual_specs(star_schema, dax_catalog, top_drivers or [])
@@ -107,7 +115,8 @@ class PowerBIEngine:
         ]
 
         for cat in cat_cols:
-            dim_table_name = "Dim" + "".join(part.capitalize() for part in cat.split("_"))
+            clean_col = cat.replace("/", "_").replace(" ", "_")
+            dim_table_name = "Dim" + "".join(part.capitalize() for part in clean_col.split("_"))
             dimensions.append(
                 StarSchemaDimension(
                     table_name=dim_table_name,
@@ -131,11 +140,68 @@ class PowerBIEngine:
             relationships=relationships,
         )
 
-    def _author_dax_measures(self, df: pl.DataFrame, target: str) -> List[DAXMeasure]:
+    def _author_dax_measures(self, df: pl.DataFrame, target: str, brief: Optional[Dict[str, Any]] = None) -> List[DAXMeasure]:
         """Synthesizes syntactically verified DAX calculations mapped to fact columns."""
+        effective_brief = brief or {}
+        domain = effective_brief.get("dataset_domain", "")
+        is_demographic = domain == "demographics" or any("population" in c.lower() for c in df.columns)
         measures: List[DAXMeasure] = []
 
-        # Target KPI Measure
+        if is_demographic:
+            target_title = target.replace("_", " ").title()
+            measures.append(
+                DAXMeasure(
+                    name=f"Total {target_title}",
+                    dax_expression=f"SUM(FactData[{target}])",
+                    description=f"Calculates total aggregated {target_title}.",
+                    category="KPI",
+                    display_folder="Core Demographics",
+                    format_string="#,##0",
+                )
+            )
+            proj_col = next((c for c in df.columns if "projected" in c.lower() and "growth" not in c.lower()), None)
+            if proj_col:
+                proj_title = proj_col.replace("_", " ").title()
+                measures.append(
+                    DAXMeasure(
+                        name=f"Total {proj_title}",
+                        dax_expression=f"SUM(FactData[{proj_col}])",
+                        description=f"Extrapolated forward projection {proj_title}.",
+                        category="KPI",
+                        display_folder="Projections",
+                        format_string="#,##0",
+                    )
+                )
+
+            measures.append(
+                DAXMeasure(
+                    name="Total Jurisdictions",
+                    dax_expression="COUNTROWS(FactData)",
+                    description="Total number of nations, states, and geographic territories.",
+                    category="KPI",
+                    display_folder="Core Demographics",
+                    format_string="#,##0",
+                )
+            )
+
+            rate_col = next((c for c in df.columns if "growth" in c.lower() or "cagr" in c.lower()), None)
+            if rate_col:
+                measures.append(
+                    DAXMeasure(
+                        name="Average Growth Velocity",
+                        dax_expression=f"AVERAGE(FactData[{rate_col}])",
+                        description="Mean annual growth velocity across jurisdictions.",
+                        category="KPI",
+                        display_folder="Growth & Dynamics",
+                        format_string="0.00%",
+                    )
+                )
+
+            return measures
+
+        # For E-commerce / General
+        unit_sym = effective_brief.get("unit_symbol") or ("$" if domain == "ecommerce" else "")
+        fmt = f"{unit_sym}#,##0.00" if unit_sym else "#,##0.00"
         target_title = "".join(part.capitalize() for part in target.split("_"))
         measures.append(
             DAXMeasure(
@@ -144,7 +210,7 @@ class PowerBIEngine:
                 description=f"Calculates total aggregated {target_title}.",
                 category="KPI",
                 display_folder="Core Metrics",
-                format_string="$#,##0.00",
+                format_string=fmt,
             )
         )
 
@@ -164,7 +230,7 @@ class PowerBIEngine:
         num_cols = [
             c for c in df.columns
             if c != target and df[c].dtype in (pl.Float32, pl.Float64, pl.Int32, pl.Int64, pl.UInt32, pl.UInt64)
-            and "year" not in c and "month" not in c and "quarter" not in c
+            and "year" not in c and "month" not in c and "quarter" not in c and "id" not in c.lower()
         ]
 
         for num in num_cols:
@@ -190,7 +256,7 @@ class PowerBIEngine:
                     description=f"Total {target_title} for the corresponding prior year period.",
                     category="Growth_MoM_YoY",
                     display_folder="Time Intelligence",
-                    format_string="$#,##0.00",
+                    format_string=fmt,
                 )
             )
 
@@ -198,7 +264,7 @@ class PowerBIEngine:
                 DAXMeasure(
                     name=f"YoY {target_title} Growth %",
                     dax_expression=f"DIVIDE([Total {target_title}] - [{target_title} LY], [{target_title} LY])",
-                    description=f"Year-over-Year percentage change in {target_title}.",
+                    description="Year-over-Year growth percentage.",
                     category="Growth_MoM_YoY",
                     display_folder="Time Intelligence",
                     format_string="0.0%",

@@ -30,10 +30,18 @@ Given:
 Output ONLY valid JSON matching this schema:
 {
   "problem_type": "root_cause_diagnostic" | "trend_analysis" | "comparative" | "predictive" | "descriptive",
+  "dataset_domain": "demographics" | "ecommerce" | "finance" | "healthcare" | "saas" | "iot" | "general_numeric",
+  "metric_unit": "people" | "currency" | "count" | "ratio" | "seconds" | "score",
+  "unit_symbol": "" | "$" | "₹" | "€",
+  "banned_terms": ["inappropriate_term_1", "inappropriate_term_2"],
+  "banned_symbols": ["₹", "$"],
+  "time_horizon": "20_years_forward" | null,
+  "target_year": 2042 | null,
+  "feature_engineering_policy": "minimalist_prerequisite_only",
   "restated_goal": "Clear restatement of the goal grounded in the dataset",
   "target_metric": "exact_column_name_from_dataset",
   "key_dimensions": ["col1", "col2"],
-  "required_analyses": ["trend_over_time", "cohort_comparison", "driver_attribution"],
+  "required_analyses": ["historical_velocity", "forward_extrapolation", "regional_distribution"],
   "chart_requirements": [
     { "type": "line|bar|waterfall|scatter|box|donut", "x": "col_name", "y": "metric_col", "split_by": "dimension_col", "purpose": "description" }
   ],
@@ -43,11 +51,15 @@ Output ONLY valid JSON matching this schema:
   "notes_for_downstream_agents": "Specific directives and constraints for feature engineering and downstream agents"
 }
 
-Rules:
-- Ground every field in columns that actually exist in the dataset. Never invent a column name.
-- If the problem is ambiguous, pick the most common professional interpretation and state the assumption in "notes_for_downstream_agents".
-- Be specific: prefer concrete chart types and column names over vague guidance.
-- Do not perform the analysis yourself — only plan it.
+Domain & Metrology Rules:
+- Accurately classify "dataset_domain". For population / country / census datasets, domain is "demographics", metric_unit is "people", and unit_symbol is "".
+- Negative Knowledge: If domain is NOT ecommerce/retail, populate "banned_terms" with ["revenue", "sales", "order", "product", "aov", "cart", "customer", "profit", "price", "transactions"] and "banned_symbols" with ["₹", "$", "€", "£"].
+- For predictive / forward extrapolation asks (e.g. "predict population after 20 years"):
+  - Set "problem_type": "predictive"
+  - Set "time_horizon": "20_years_forward"
+  - Calculate "target_year": (latest historical year in dataset + 20), e.g. 2022 + 20 = 2042.
+- Ground every field in columns that actually exist in the dataset. Never invent a column name. Never select index/rank columns like 'Rank' as target_metric when actual metric columns (e.g. '2022 Population') exist.
+- Feature Engineering Policy: ALWAYS specify "minimalist_prerequisite_only". Instruct downstream agents to engineer ONLY the mathematical prerequisite features needed to solve the goal (e.g. CAGR growth velocity and 2042 projected population), and OMIT all generic/kitchen-sink transforms.
 - Output pure JSON only. Do not wrap in markdown quotes or preamble.
 """
 
@@ -163,7 +175,7 @@ def _fallback_orchestrate_analysis(
     dataset_profile: Dict[str, Any],
     target_metric_hint: Optional[str] = None,
 ) -> AnalysisBrief:
-    """Deterministic, rule-grounded fallback brief generator when LLM is unavailable."""
+    """Deterministic, rule-grounded fallback brief generator with domain metrology & common sense."""
     cols_meta = dataset_profile.get("columns", [])
     all_col_names = [c["name"] for c in cols_meta]
     numeric_cols = [c["name"] for c in cols_meta if c.get("is_numeric")]
@@ -171,60 +183,133 @@ def _fallback_orchestrate_analysis(
     date_cols = [c["name"] for c in cols_meta if c.get("is_temporal") or "date" in c["name"].lower()]
 
     prompt_lower = (business_prompt or "").lower()
+    col_str_lower = " ".join([c.lower() for c in all_col_names])
 
-    # 1. Classify Ask
-    if any(w in prompt_lower for w in ["why", "driver", "root cause", "erod", "drop", "decline", "fall", "attribution"]):
+    # 1. Semantic Domain Metrology & Negative Knowledge
+    if any(k in col_str_lower or k in prompt_lower for k in ["population", "census", "demographic", "fertility", "birth", "country/territory", "capital"]):
+        dataset_domain = "demographics"
+        metric_unit = "people"
+        unit_symbol = ""
+        banned_terms = ["revenue", "sales", "order", "product", "aov", "cart", "customer", "profit", "price", "transactions", "payment"]
+        banned_symbols = ["₹", "$", "€", "£"]
+    elif any(k in col_str_lower for k in ["patient", "diagnosis", "health", "symptom", "hospital", "clinic", "disease"]):
+        dataset_domain = "healthcare"
+        metric_unit = "count"
+        unit_symbol = ""
+        banned_terms = ["revenue", "sales", "order", "cart", "aov", "profit"]
+        banned_symbols = ["₹", "$", "€", "£"]
+    elif any(k in col_str_lower for k in ["stock", "ticker", "asset", "liability", "portfolio", "dividend", "equity"]):
+        dataset_domain = "finance"
+        metric_unit = "currency"
+        unit_symbol = "$"
+        banned_terms = ["patient", "cart", "shipment"]
+        banned_symbols = []
+    elif any(k in col_str_lower for k in ["order", "revenue", "sales", "cart", "customer", "ecommerce", "sku", "basket"]):
+        dataset_domain = "ecommerce"
+        metric_unit = "currency"
+        unit_symbol = "$"
+        banned_terms = []
+        banned_symbols = []
+    else:
+        dataset_domain = "general_numeric"
+        metric_unit = "count"
+        unit_symbol = ""
+        banned_terms = []
+        banned_symbols = []
+
+    # 2. Classify Ask & Predictive Horizon
+    time_horizon = None
+    target_year = None
+    horizon_match = re.search(r'(\d+)\s*(?:years?|yrs?|yr)', prompt_lower)
+    if horizon_match and any(w in prompt_lower for w in ["predict", "forecast", "after", "future", "ahead", "projection"]):
+        years_ahead = int(horizon_match.group(1))
+        time_horizon = f"{years_ahead}_years_forward"
+        # Find latest 4-digit calendar year in column names (e.g., '2022 Population', '1970 Population')
+        year_matches = []
+        for c in all_col_names:
+            ym = re.findall(r'\b(19\d\d|20\d\d)\b', c)
+            for y in ym:
+                year_matches.append(int(y))
+        if year_matches:
+            latest_year = max(year_matches)
+            target_year = latest_year + years_ahead
+        else:
+            target_year = 2024 + years_ahead
+
+    if any(w in prompt_lower for w in ["predict", "future", "forecast", "risk", "probability", "projection", "after"]):
+        problem_type = "predictive"
+    elif any(w in prompt_lower for w in ["why", "driver", "root cause", "erod", "drop", "decline", "fall", "attribution"]):
         problem_type = "root_cause_diagnostic"
-    elif any(w in prompt_lower for w in ["trend", "quarter", "month", "season", "over time", "forecast", "historical"]):
+    elif any(w in prompt_lower for w in ["trend", "quarter", "month", "season", "over time", "historical"]):
         problem_type = "trend_analysis"
     elif any(w in prompt_lower for w in ["compare", "versus", "vs", "segment", "difference", "cohort"]):
         problem_type = "comparative"
-    elif any(w in prompt_lower for w in ["predict", "future", "forecast", "risk", "probability"]):
-        problem_type = "predictive"
     else:
         problem_type = "descriptive"
 
-    # 2. Ground Target Metric
+    # 3. Ground Target Metric (Never pick Rank/Index or ID columns)
+    substantive_numeric_cols = [
+        c for c in numeric_cols
+        if not any(ign in c.lower() for ign in ["rank", "id", "index", "code", "row_num", "number"])
+    ]
+
     target_metric = None
     if target_metric_hint:
-        target_metric = _ground_column_name(target_metric_hint, numeric_cols or all_col_names)
+        target_metric = _ground_column_name(target_metric_hint, substantive_numeric_cols or all_col_names)
+
+    if not target_metric and dataset_domain == "demographics":
+        # Identify population columns and prefer the latest year
+        pop_cols = [c for c in all_col_names if "population" in c.lower() and "percentage" not in c.lower()]
+        if pop_cols:
+            target_metric = sorted(pop_cols, reverse=True)[0]
 
     if not target_metric:
-        # Match keywords in prompt to columns
-        priority_metric_kws = ["margin", "profit", "revenue", "sales", "cost", "price", "amount", "churn", "volume"]
+        priority_metric_kws = ["population", "margin", "profit", "revenue", "sales", "cost", "price", "amount", "churn", "volume"]
         for kw in priority_metric_kws:
             if kw in prompt_lower:
-                for col in numeric_cols:
+                for col in substantive_numeric_cols:
                     if kw in col.lower():
                         target_metric = col
                         break
             if target_metric:
                 break
 
-    if not target_metric and numeric_cols:
+    if not target_metric and substantive_numeric_cols:
+        target_metric = substantive_numeric_cols[0]
+    elif not target_metric and numeric_cols:
         target_metric = numeric_cols[0]
     elif not target_metric and all_col_names:
         target_metric = all_col_names[0]
 
-    # 3. Ground Key Dimensions
+    # 4. Ground Key Dimensions
     key_dimensions: List[str] = []
-    dim_kws = ["category", "product", "region", "segment", "country", "store", "channel", "type", "quarter", "month"]
-    for kw in dim_kws:
-        for col in cat_cols + date_cols:
-            if kw in col.lower() and col not in key_dimensions:
-                key_dimensions.append(col)
-                if len(key_dimensions) >= 3:
-                    break
-        if len(key_dimensions) >= 3:
-            break
+    if dataset_domain == "demographics":
+        for kw in ["country", "territory", "continent", "capital", "region"]:
+            for col in cat_cols + all_col_names:
+                if kw in col.lower() and col not in key_dimensions and col != target_metric:
+                    key_dimensions.append(col)
+                    if len(key_dimensions) >= 2:
+                        break
+            if len(key_dimensions) >= 2:
+                break
+    else:
+        dim_kws = ["category", "product", "region", "segment", "country", "store", "channel", "type", "quarter", "month"]
+        for kw in dim_kws:
+            for col in cat_cols + date_cols:
+                if kw in col.lower() and col not in key_dimensions:
+                    key_dimensions.append(col)
+                    if len(key_dimensions) >= 3:
+                        break
+            if len(key_dimensions) >= 3:
+                break
 
     if not key_dimensions:
-        key_dimensions = cat_cols[:2] if cat_cols else all_col_names[:2]
+        key_dimensions = [c for c in cat_cols if c != target_metric][:2] if cat_cols else [c for c in all_col_names if c != target_metric][:2]
 
-    # 4. In-Scope / Out-of-Scope Columns
+    # 5. In-Scope / Out-of-Scope Columns
     primary_date = date_cols[0] if date_cols else None
     in_scope = list(dict.fromkeys([target_metric] + key_dimensions + ([primary_date] if primary_date else [])))
-    for c in numeric_cols:
+    for c in substantive_numeric_cols:
         if c not in in_scope and len(in_scope) < 7:
             in_scope.append(c)
 
@@ -233,59 +318,99 @@ def _fallback_orchestrate_analysis(
         if c not in in_scope and any(ign in c.lower() for ign in ["id", "hash", "timestamp", "comment", "note", "guid", "row_num"])
     ]
 
-    # 5. Required Analyses & Chart Requirements
-    required_analyses = ["driver_attribution", "cohort_comparison"]
-    if primary_date or problem_type == "trend_analysis":
-        required_analyses.insert(0, "trend_over_time")
-
+    # 6. Required Analyses & Chart Requirements
     chart_reqs = []
     dim_1 = key_dimensions[0] if key_dimensions else None
-    time_col = primary_date or (key_dimensions[1] if len(key_dimensions) > 1 else None)
+    dim_2 = key_dimensions[1] if len(key_dimensions) > 1 else None
 
-    if time_col and target_metric:
+    if problem_type == "predictive" and dataset_domain == "demographics":
+        required_analyses = ["historical_growth_velocity", "forward_extrapolation_forecast", "regional_distribution"]
         chart_reqs.append(
             ChartRequirement(
                 type="line",
-                x=time_col,
+                x="Year",
                 y=target_metric,
-                split_by=dim_1,
-                purpose=f"{target_metric} trend over time split by {dim_1}",
+                purpose=f"Historical trajectory (1970–2022) and forward forecast to {target_year or 'future horizon'}",
             )
         )
-    if dim_1 and target_metric:
-        chart_reqs.append(
-            ChartRequirement(
-                type="bar",
-                x=dim_1,
-                y=target_metric,
-                purpose=f"{target_metric} distribution across {dim_1}",
+        if dim_1:
+            chart_reqs.append(
+                ChartRequirement(
+                    type="bar",
+                    x=dim_1,
+                    y=f"{target_year}_projected_population" if target_year else target_metric,
+                    purpose=f"Top 10 countries by projected {target_year or 'future'} population",
+                )
             )
-        )
-    if problem_type == "root_cause_diagnostic":
-        chart_reqs.append(
-            ChartRequirement(
-                type="waterfall",
-                purpose=f"{target_metric} driver decomposition breakdown",
+        if dim_2:
+            chart_reqs.append(
+                ChartRequirement(
+                    type="donut",
+                    x=dim_2,
+                    y=f"{target_year}_projected_population" if target_year else target_metric,
+                    purpose=f"Projected {target_year or 'future'} population share by region/continent",
+                )
             )
-        )
+    else:
+        required_analyses = ["driver_attribution", "cohort_comparison"]
+        if primary_date or problem_type == "trend_analysis":
+            required_analyses.insert(0, "trend_over_time")
 
+        time_col = primary_date or (dim_2 if dim_2 else None)
+        if time_col and target_metric:
+            chart_reqs.append(
+                ChartRequirement(
+                    type="line",
+                    x=time_col,
+                    y=target_metric,
+                    split_by=dim_1,
+                    purpose=f"{target_metric} trend over time split by {dim_1}",
+                )
+            )
+        if dim_1 and target_metric:
+            chart_reqs.append(
+                ChartRequirement(
+                    type="bar",
+                    x=dim_1,
+                    y=target_metric,
+                    purpose=f"{target_metric} distribution across {dim_1}",
+                )
+            )
+        if problem_type == "root_cause_diagnostic":
+            chart_reqs.append(
+                ChartRequirement(
+                    type="waterfall",
+                    purpose=f"{target_metric} driver decomposition breakdown",
+                )
+            )
+
+    horizon_phrase = f" and extrapolate forward {time_horizon.replace('_', ' ')} (target year {target_year})" if time_horizon else ""
     restated = (
         f"Investigate {problem_type.replace('_', ' ')} for focal metric '{target_metric}' "
-        f"across primary dimensions ({', '.join(key_dimensions)}) to answer: '{business_prompt or 'Overall operational and financial drivers'}'"
+        f"across primary dimensions ({', '.join(key_dimensions)}){horizon_phrase} to answer: '{business_prompt or 'Overall operational and demographic analysis'}'"
     )
 
     success_crit = (
-        f"Answer must ground analysis in '{target_metric}', isolate top contributing segments across "
-        f"({', '.join(key_dimensions)}), and quantify variance impact with statistical backing."
+        f"Answer must ground analysis in '{target_metric}', quantify demographic velocity across "
+        f"({', '.join(key_dimensions)}), deliver forward projection deliverables without retail/currency terms, and satisfy the requested forecast horizon."
     )
 
     notes = (
-        f"Focus feature engineering on interactions between {target_metric} and {', '.join(key_dimensions)}. "
-        f"Prioritize columns in scope ({', '.join(in_scope)}) and eliminate noise from identifier columns."
+        f"Minimalist Transformation Policy: Create ONLY mathematical prerequisites directly required by the goal "
+        f"(historical CAGR growth velocity, {target_year or 'future'}_projected_population, and projected net growth). "
+        f"Do NOT generate generic scaling, binning, or dummy variables. Ban all retail terms ({', '.join(banned_terms[:5])}) and currency symbols ({', '.join(banned_symbols)})."
     )
 
     return AnalysisBrief(
         problem_type=problem_type,  # type: ignore
+        dataset_domain=dataset_domain,  # type: ignore
+        metric_unit=metric_unit,
+        unit_symbol=unit_symbol,
+        banned_terms=banned_terms,
+        banned_symbols=banned_symbols,
+        time_horizon=time_horizon,
+        target_year=target_year,
+        feature_engineering_policy="minimalist_prerequisite_only",
         restated_goal=restated,
         target_metric=target_metric,
         key_dimensions=key_dimensions,
@@ -389,6 +514,14 @@ def orchestrate_analysis(
 
         brief = AnalysisBrief(
             problem_type=data.get("problem_type", fallback_brief.problem_type),
+            dataset_domain=data.get("dataset_domain", fallback_brief.dataset_domain),
+            metric_unit=data.get("metric_unit", fallback_brief.metric_unit),
+            unit_symbol=data.get("unit_symbol", fallback_brief.unit_symbol),
+            banned_terms=data.get("banned_terms", fallback_brief.banned_terms),
+            banned_symbols=data.get("banned_symbols", fallback_brief.banned_symbols),
+            time_horizon=data.get("time_horizon", fallback_brief.time_horizon),
+            target_year=data.get("target_year", fallback_brief.target_year),
+            feature_engineering_policy=data.get("feature_engineering_policy", fallback_brief.feature_engineering_policy),
             restated_goal=data.get("restated_goal", fallback_brief.restated_goal),
             target_metric=grounded_target,
             key_dimensions=grounded_dims,
@@ -399,7 +532,7 @@ def orchestrate_analysis(
             success_criteria=data.get("success_criteria", fallback_brief.success_criteria),
             notes_for_downstream_agents=data.get("notes_for_downstream_agents", fallback_brief.notes_for_downstream_agents),
         )
-        logger.info(f"[Orchestrator] Successfully generated brief for '{brief.target_metric}' via {active_model}")
+        logger.info(f"[Orchestrator] Successfully generated brief for '{brief.target_metric}' via {active_model} (Domain: {brief.dataset_domain}, Unit: {brief.metric_unit})")
         return brief
 
     except Exception as exc:
@@ -429,6 +562,10 @@ def validate_pipeline_output(
             "feature_engineering": {
                 "total_features": pipeline_outputs.get("transformation", {}).get("total_features"),
                 "features_created": pipeline_outputs.get("transformation", {}).get("features_created"),
+                "engineered_feature_names": [
+                    (f.get("feature_name") if isinstance(f, dict) else getattr(f, "feature_name", ""))
+                    for f in pipeline_outputs.get("transformation", {}).get("feature_catalog", [])
+                ],
             },
             "eda": {
                 "insights_count": len(pipeline_outputs.get("eda", {}).get("insights", [])),
@@ -444,11 +581,21 @@ def validate_pipeline_output(
             },
             "visualizations": {
                 "rendered_charts_count": pipeline_outputs.get("visualization", {}).get("total_charts"),
-                "kpi_cards_count": len(pipeline_outputs.get("visualization", {}).get("kpi_cards", [])),
+                "chart_titles": [
+                    (c.get("title") if isinstance(c, dict) else getattr(c, "title", ""))
+                    for c in pipeline_outputs.get("visualization", {}).get("rendered_charts", [])
+                ],
+                "kpi_cards": [
+                    f"{(k.get('title') if isinstance(k, dict) else getattr(k, 'title', ''))}: {(k.get('formatted_value') if isinstance(k, dict) else getattr(k, 'formatted_value', ''))}"
+                    for k in pipeline_outputs.get("visualization", {}).get("kpi_cards", [])
+                ],
             },
             "powerbi": {
                 "star_schema_dimensions": len(pipeline_outputs.get("powerbi", {}).get("star_schema", {}).get("dimensions", [])),
-                "dax_measures_count": len(pipeline_outputs.get("powerbi", {}).get("dax_catalog", [])),
+                "dax_measures": [
+                    (m.get("name") if isinstance(m, dict) else getattr(m, "name", ""))
+                    for m in pipeline_outputs.get("powerbi", {}).get("dax_catalog", [])
+                ],
             },
         },
     }
@@ -475,10 +622,72 @@ def validate_pipeline_output(
         except Exception as err:
             logger.warning(f"[Validator] LLM validation call failed: {err}")
 
-    # Programmatic fallback validation
-    rc = pipeline_outputs.get("root_cause")
-    viz = pipeline_outputs.get("visualization")
-    pbi = pipeline_outputs.get("powerbi")
+    # Programmatic zero-tolerance validation guardrails
+    viz = pipeline_outputs.get("visualization", {})
+    rc = pipeline_outputs.get("root_cause", {})
+    pbi = pipeline_outputs.get("powerbi", {})
+    sql = pipeline_outputs.get("sql_analytics", {})
+
+    rendered_charts = viz.get("rendered_charts", []) if isinstance(viz, dict) else []
+    kpi_cards = viz.get("kpi_cards", []) if isinstance(viz, dict) else []
+
+    # 1. Banned Symbols & Terms Check (Negative Knowledge)
+    if brief.banned_symbols or brief.banned_terms:
+        for card in kpi_cards:
+            text = f"{getattr(card, 'title', '')} {getattr(card, 'formatted_value', '')} {getattr(card, 'description', '')}"
+            for sym in brief.banned_symbols:
+                if sym in text:
+                    return ValidationVerdict(
+                        passed=False,
+                        revise_agent="data_visualizer",
+                        revision_note=f"Sanity Check Failed: Inappropriate symbol '{sym}' detected in KPI Card '{getattr(card, 'title', '')}' for {brief.dataset_domain} domain.",
+                    )
+            for term in brief.banned_terms:
+                if re.search(rf"\b{re.escape(term)}\b", text, re.IGNORECASE):
+                    return ValidationVerdict(
+                        passed=False,
+                        revise_agent="data_visualizer",
+                        revision_note=f"Sanity Check Failed: Banned domain vocabulary '{term}' detected in KPI Card '{getattr(card, 'title', '')}' for {brief.dataset_domain} domain.",
+                    )
+
+        for chart in rendered_charts:
+            chart_text = f"{getattr(chart, 'title', '')} {getattr(chart, 'description', '')}"
+            for sym in brief.banned_symbols:
+                if sym in chart_text:
+                    return ValidationVerdict(
+                        passed=False,
+                        revise_agent="data_visualizer",
+                        revision_note=f"Sanity Check Failed: Inappropriate symbol '{sym}' detected in Chart '{getattr(chart, 'title', '')}' for {brief.dataset_domain} domain.",
+                    )
+            for term in brief.banned_terms:
+                if re.search(rf"\b{re.escape(term)}\b", chart_text, re.IGNORECASE):
+                    return ValidationVerdict(
+                        passed=False,
+                        revise_agent="data_visualizer",
+                        revision_note=f"Sanity Check Failed: Banned domain vocabulary '{term}' detected in Chart '{getattr(chart, 'title', '')}' for {brief.dataset_domain} domain.",
+                    )
+
+    # 2. Predictive Forward Extrapolation Check
+    if brief.problem_type == "predictive":
+        target_year_str = str(brief.target_year) if brief.target_year else ""
+        has_forecast_visual = any(
+            "forecast" in getattr(c, "title", "").lower()
+            or "project" in getattr(c, "title", "").lower()
+            or (target_year_str and target_year_str in getattr(c, "title", ""))
+            for c in rendered_charts
+        )
+        has_forecast_kpi = any(
+            "project" in getattr(k, "title", "").lower()
+            or "forecast" in getattr(k, "title", "").lower()
+            or (target_year_str and target_year_str in getattr(k, "title", ""))
+            for k in kpi_cards
+        )
+        if not (has_forecast_visual or has_forecast_kpi):
+            return ValidationVerdict(
+                passed=False,
+                revise_agent="data_visualizer",
+                revision_note=f"Predictive analysis must deliver forward projection deliverables targeting horizon {brief.target_year or brief.time_horizon}.",
+            )
 
     if not rc or not rc.get("drivers"):
         return ValidationVerdict(
@@ -487,7 +696,7 @@ def validate_pipeline_output(
             revision_note=f"Root-cause diagnostics must isolate key statistical drivers for '{brief.target_metric}'.",
         )
 
-    if not viz or viz.get("total_charts", 0) == 0:
+    if not viz or (isinstance(viz, dict) and viz.get("total_charts", 0) == 0):
         return ValidationVerdict(
             passed=False,
             revise_agent="data_visualizer",

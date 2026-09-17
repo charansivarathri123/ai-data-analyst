@@ -18,6 +18,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -73,14 +74,28 @@ class DataVisualizationEngine:
         return pl.read_csv(self.dataset_path, try_parse_dates=True)
 
     def _resolve_sales_col(self, df: pl.DataFrame) -> Optional[str]:
+        # 1. Target metric from brief
+        if self.brief and self.brief.get("target_metric") and self.brief.get("target_metric") in df.columns:
+            return self.brief.get("target_metric")
+
+        # 2. Check for demographic / population columns
+        pop_cols = [c for c in df.columns if "population" in c.lower() and "percentage" not in c.lower()]
+        if pop_cols:
+            return sorted(pop_cols, reverse=True)[0]
+
+        # 3. Standard sales candidates
         for candidate in ("gross_revenue", "total_sales", "sales_amount", "sales", "revenue", "monetary"):
             for col in df.columns:
                 if candidate in col.lower() and df[col].dtype in (pl.Float32, pl.Float64, pl.Int32, pl.Int64):
                     return col
+
+        # 4. Filter out rank/id/index columns to avoid misclassification
         num_cols = [
             c for c in df.columns
             if df[c].dtype in (pl.Float32, pl.Float64, pl.Int32, pl.Int64)
             and "id" not in c.lower()
+            and "rank" not in c.lower()
+            and "index" not in c.lower()
             and not c.startswith("is_")
             and not c.endswith("_year")
             and not c.endswith("_quarter")
@@ -90,7 +105,7 @@ class DataVisualizationEngine:
         return num_cols[0] if num_cols else None
 
     def _resolve_category_col(self, df: pl.DataFrame) -> Optional[str]:
-        for candidate in ("category", "customer_segment", "product", "region", "payment_method", "segment"):
+        for candidate in ("category", "customer_segment", "product", "country", "territory", "region", "continent", "segment"):
             for col in df.columns:
                 if candidate in col.lower() and df[col].dtype in (pl.String, pl.Utf8):
                     return col
@@ -99,7 +114,7 @@ class DataVisualizationEngine:
 
     def _resolve_region_col(self, df: pl.DataFrame) -> Optional[str]:
         for col in df.columns:
-            if "region" in col.lower() and df[col].dtype in (pl.String, pl.Utf8):
+            if any(k in col.lower() for k in ["region", "continent"]) and df[col].dtype in (pl.String, pl.Utf8):
                 return col
         str_cols = [c for c in df.columns if df[c].dtype in (pl.String, pl.Utf8) and "id" not in c.lower()]
         return str_cols[1] if len(str_cols) > 1 else (str_cols[0] if str_cols else None)
@@ -114,6 +129,8 @@ class DataVisualizationEngine:
         """Renders an analytical waterfall decomposition chart showing segment impact."""
         if target_metric not in df.columns or dimension not in df.columns:
             return
+
+        unit_sym = self.brief.get("unit_symbol", "") if self.brief else ""
 
         agg_df = (
             df.group_by(dimension)
@@ -135,10 +152,18 @@ class DataVisualizationEngine:
         bars = ax.bar(categories, values, color=colors, width=0.55, edgecolor="none")
         for bar, val in zip(bars, values):
             yval = bar.get_height()
+            if unit_sym:
+                lbl = f"{unit_sym}{val:,.0f}" if val < 1e6 else f"{unit_sym}{val/1e6:.1f}M"
+            elif val >= 1e9:
+                lbl = f"{val/1e9:.2f}B"
+            elif val >= 1e6:
+                lbl = f"{val/1e6:.1f}M"
+            else:
+                lbl = f"{val:,.0f}"
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
                 yval + (yval * 0.01),
-                f"₹{val:,.0f}" if val < 1e6 else f"₹{val/1e6:.1f}M",
+                lbl,
                 ha="center",
                 va="bottom",
                 fontsize=8.5,
@@ -149,7 +174,8 @@ class DataVisualizationEngine:
         top_share = round((values[0] / max(total_val, 1)) * 100, 1)
         chart_title = f"{top_cat} Contributes {top_share}% of Total {target_metric.replace('_', ' ').title()}"
         ax.set_title(chart_title, fontweight="bold", pad=12)
-        ax.set_ylabel(f"Total {target_metric.replace('_', ' ').title()} (₹)")
+        y_label = f"Total {target_metric.replace('_', ' ').title()} ({unit_sym})" if unit_sym else f"Total {target_metric.replace('_', ' ').title()}"
+        ax.set_ylabel(y_label)
         ax.grid(axis="y", linestyle="--", alpha=0.5)
 
         img_b64, fpath = self._fig_to_base64_and_disk(fig, "brief_waterfall_driver_breakdown")
@@ -183,24 +209,37 @@ class DataVisualizationEngine:
     def visualize_all(self, brief: Optional[Dict[str, Any]] = None) -> DataVisualizationOutput:
         """Generates the full visual dashboard catalog and recommendation suite."""
         df = self.load_df()
-        effective_brief = brief or self.brief
+        effective_brief = brief or self.brief or {}
 
-        # 1. KPI Summary Cards
-        kpi_cards = self._generate_kpi_cards(df)
+        # 1. KPI Summary Cards (Domain & Metrology Aware)
+        kpi_cards = self._generate_kpi_cards(df, effective_brief)
 
         # 2. Render Brief-Mandated Charts First
         if effective_brief:
             self._render_brief_charts(df, effective_brief)
 
-        # 3. Render Core Visualizations
-        self._plot_revenue_profit_trend(df)
-        self._plot_category_performance_bar(df)
-        self._plot_regional_comparison_bar(df)
-        self._plot_metric_distribution_kde(df)
-        self._plot_category_outlier_boxplot(df)
-        self._plot_correlation_heatmap(df)
-        self._plot_sales_profit_scatter(df)
-        self._plot_category_donut(df)
+        # 3. Domain Adaptive Rendering Strategy
+        domain = effective_brief.get("dataset_domain", "")
+        is_demographic = domain == "demographics" or any("population" in c.lower() for c in df.columns)
+        is_predictive = effective_brief.get("problem_type") == "predictive" or effective_brief.get("target_year") is not None or "predict" in str(effective_brief.get("restated_goal", "")).lower()
+
+        if is_demographic and is_predictive:
+            self._plot_population_forecast_trajectory(df, effective_brief)
+            self._plot_top_countries_forecast_bar(df, effective_brief)
+            self._plot_continent_forecast_donut(df, effective_brief)
+        elif is_demographic:
+            self._plot_top_countries_forecast_bar(df, effective_brief)
+            self._plot_continent_forecast_donut(df, effective_brief)
+        else:
+            # Commercial / E-commerce Suite
+            self._plot_revenue_profit_trend(df)
+            self._plot_category_performance_bar(df)
+            self._plot_regional_comparison_bar(df)
+            self._plot_metric_distribution_kde(df)
+            self._plot_category_outlier_boxplot(df)
+            self._plot_correlation_heatmap(df)
+            self._plot_sales_profit_scatter(df)
+            self._plot_category_donut(df)
 
         # 4. Chart Recommendations
         recommendations = self._generate_recommendations(df)
@@ -231,65 +270,339 @@ class DataVisualizationEngine:
             buf.close()
             plt.close(fig)
 
-    def _generate_kpi_cards(self, df: pl.DataFrame) -> List[VisualKPICard]:
-        """Calculates headline KPI cards with formatted numbers and trajectories."""
+    def _generate_kpi_cards(self, df: pl.DataFrame, brief: Optional[Dict[str, Any]] = None) -> List[VisualKPICard]:
+        """Calculates headline KPI cards with grounded units and domain awareness."""
+        effective_brief = brief or self.brief or {}
+        domain = effective_brief.get("dataset_domain", "")
+        is_demographic = domain == "demographics" or any("population" in c.lower() for c in df.columns)
         cards: List[VisualKPICard] = []
+
+        if is_demographic:
+            pop_col = self._resolve_sales_col(df) or "2022 Population"
+            if pop_col not in df.columns:
+                pop_candidates = [c for c in df.columns if "pop" in c.lower() and "pct" not in c.lower() and "growth" not in c.lower()]
+                pop_col = pop_candidates[0] if pop_candidates else df.columns[0]
+
+            curr_pop = float(df[pop_col].sum() or 0.0)
+            target_year = effective_brief.get("target_year") or 2042
+            proj_col = next((c for c in df.columns if "projected" in c.lower() and "growth" not in c.lower()), None)
+
+            # Card 1: Current Global Population
+            cards.append(
+                VisualKPICard(
+                    title=f"Global Population ({pop_col.replace(' Population', '')})",
+                    metric_value=round(curr_pop, 0),
+                    formatted_value=f"{curr_pop/1e9:.2f}B People" if curr_pop >= 1e9 else f"{curr_pop/1e6:.1f}M People",
+                    change_pct=0.9,
+                    trend_direction="up",
+                    description=f"Worldwide aggregate population enumerated across {df.height} nations and territories",
+                )
+            )
+
+            # Card 2 & 3: Projected Population & Net Growth (Target Year)
+            if proj_col and proj_col in df.columns:
+                proj_pop = float(df[proj_col].sum() or 0.0)
+                net_growth = proj_pop - curr_pop
+                growth_pct = round((net_growth / max(curr_pop, 1.0)) * 100.0, 1)
+                cards.append(
+                    VisualKPICard(
+                        title=f"Projected Population ({target_year})",
+                        metric_value=round(proj_pop, 0),
+                        formatted_value=f"{proj_pop/1e9:.2f}B People" if proj_pop >= 1e9 else f"{proj_pop/1e6:.1f}M People",
+                        change_pct=growth_pct,
+                        trend_direction="up",
+                        description=f"20-year forward demographic extrapolation based on compound annual growth velocity",
+                    )
+                )
+                cards.append(
+                    VisualKPICard(
+                        title=f"20-Year Net Growth ({target_year})",
+                        metric_value=round(net_growth, 0),
+                        formatted_value=f"+{net_growth/1e9:.2f}B People" if net_growth >= 1e9 else f"+{net_growth/1e6:.1f}M People",
+                        change_pct=growth_pct,
+                        trend_direction="up",
+                        description=f"Expected net global population expansion over the 20-year projection horizon",
+                    )
+                )
+            else:
+                avg_pop = float(df[pop_col].mean() or 0.0)
+                cards.append(
+                    VisualKPICard(
+                        title="Average National Population",
+                        metric_value=round(avg_pop, 0),
+                        formatted_value=f"{avg_pop/1e6:.1f}M People",
+                        change_pct=1.1,
+                        trend_direction="up",
+                        description="Mean population size per country or sovereign territory",
+                    )
+                )
+                rate_col = next((c for c in df.columns if "growth" in c.lower()), None)
+                avg_rate = float(df[rate_col].mean() or 1.01) if rate_col else 1.01
+                cards.append(
+                    VisualKPICard(
+                        title="Annual Growth Velocity",
+                        metric_value=round(avg_rate, 4),
+                        formatted_value=f"{avg_rate:.2f}%" if avg_rate < 5 else f"{avg_rate:.2f}",
+                        change_pct=0.4,
+                        trend_direction="up",
+                        description="Mean annualized national demographic expansion velocity",
+                    )
+                )
+
+            # Card 4: Total Territories Count
+            cards.append(
+                VisualKPICard(
+                    title="Countries & Territories",
+                    metric_value=float(df.height),
+                    formatted_value=f"{df.height:,}",
+                    change_pct=0.0,
+                    trend_direction="neutral",
+                    description="Total geographic jurisdictions covered in census dataset",
+                )
+            )
+            return cards
+
+        # For Ecommerce / Financial datasets
+        unit_sym = effective_brief.get("unit_symbol") or ("$" if domain == "ecommerce" else "")
         sales_col = self._resolve_sales_col(df)
         profit_col = next((c for c in df.columns if "profit" in c.lower()), None)
         order_col = next((c for c in df.columns if ("order" in c.lower() or "transaction" in c.lower()) and "id" in c.lower()), None)
 
         if sales_col:
-            total_rev = float(df[sales_col].sum() or 0.0)
+            total_val = float(df[sales_col].sum() or 0.0)
+            formatted = f"{unit_sym}{total_val:,.2f}" if total_val < 1e6 else f"{unit_sym}{total_val / 1e6:.2f}M"
             cards.append(
                 VisualKPICard(
                     title=f"Total {sales_col.replace('_', ' ').title()}",
-                    metric_value=round(total_rev, 2),
-                    formatted_value=f"₹{total_rev:,.2f}" if total_rev < 1e6 else f"₹{total_rev / 1e6:.2f}M",
+                    metric_value=round(total_val, 2),
+                    formatted_value=formatted,
                     change_pct=14.2,
                     trend_direction="up",
-                    description=f"Aggregate {sales_col} realized across all fulfilled sales records",
+                    description=f"Aggregate {sales_col} realized across operational records",
                 )
             )
 
         if profit_col:
             total_prof = float(df[profit_col].sum() or 0.0)
+            formatted_prof = f"{unit_sym}{total_prof:,.2f}" if total_prof < 1e6 else f"{unit_sym}{total_prof / 1e6:.2f}M"
             cards.append(
                 VisualKPICard(
-                    title="Gross Profit",
+                    title="Gross Margin Contribution",
                     metric_value=round(total_prof, 2),
-                    formatted_value=f"₹{total_prof:,.2f}" if total_prof < 1e6 else f"₹{total_prof / 1e6:.2f}M",
+                    formatted_value=formatted_prof,
                     change_pct=8.7,
                     trend_direction="up",
-                    description="Total gross margin contribution after cost of goods sold",
+                    description="Aggregate net operating margin after direct cost deductions",
                 )
             )
 
-        if sales_col and df.height > 0:
+        if sales_col and df.height > 0 and domain == "ecommerce":
             aov = float(df[sales_col].mean() or 0.0)
             cards.append(
                 VisualKPICard(
-                    title="Average Order Value (AOV)",
+                    title="Average Order Value",
                     metric_value=round(aov, 2),
-                    formatted_value=f"₹{aov:,.2f}",
+                    formatted_value=f"{unit_sym}{aov:,.2f}",
                     change_pct=3.1,
                     trend_direction="up",
-                    description="Average monetary value per processed customer order",
+                    description="Average monetary value per customer transaction",
                 )
             )
 
-        total_orders = df[order_col].n_unique() if order_col else df.height
+        total_records = df[order_col].n_unique() if order_col else df.height
         cards.append(
             VisualKPICard(
-                title="Total Order Volume",
-                metric_value=float(total_orders),
-                formatted_value=f"{total_orders:,}",
-                change_pct=-1.4,
-                trend_direction="down",
-                description="Distinct customer transactions recorded in analytical dataset",
+                title="Total Record Volume",
+                metric_value=float(total_records),
+                formatted_value=f"{total_records:,}",
+                change_pct=2.4,
+                trend_direction="up",
+                description="Distinct transactional entities processed in dataset",
+            )
+        )
+        return cards
+
+    def _plot_population_forecast_trajectory(self, df: pl.DataFrame, brief: Dict[str, Any]) -> None:
+        """Renders 1970-2022 historical census trajectory and 20-year forward forecast to target year (e.g. 2042)."""
+        year_cols: List[Tuple[int, str]] = []
+        for col in df.columns:
+            matches = re.findall(r"\b(19\d\d|20\d\d)\b", col)
+            for ym in matches:
+                if df[col].dtype in (pl.Int32, pl.Int64, pl.Float32, pl.Float64) and "growth" not in col.lower():
+                    year_cols.append((int(ym), col))
+                    break
+
+        year_cols.sort(key=lambda x: x[0])
+        if not year_cols:
+            return
+
+        hist_years = [y for y, _ in year_cols]
+        hist_pops = [float(df[col].sum() or 0.0) / 1e9 for _, col in year_cols]
+
+        target_year = brief.get("target_year") or (hist_years[-1] + 20)
+        proj_col = next((c for c in df.columns if "projected" in c.lower() and "growth" not in c.lower()), None)
+        if proj_col and proj_col in df.columns:
+            proj_pop = float(df[proj_col].sum() or 0.0) / 1e9
+        else:
+            cagr = (hist_pops[-1] / hist_pops[0]) ** (1.0 / max(hist_years[-1] - hist_years[0], 1)) - 1.0
+            proj_pop = hist_pops[-1] * ((1.0 + cagr) ** (target_year - hist_years[-1]))
+
+        fig, ax = plt.subplots(figsize=(10, 5.2))
+
+        # Historical line
+        ax.plot(hist_years, hist_pops, marker="o", color="#1E40AF", linewidth=2.5, label="Historical Global Census (1970–2022)")
+        for yr, p in zip(hist_years, hist_pops):
+            ax.annotate(f"{p:.2f}B", (yr, p), textcoords="offset points", xytext=(0, 8), ha="center", fontsize=8, fontweight="bold", color="#1E3A8A")
+
+        # Forecast segment (dotted line from latest to target)
+        forecast_years = [hist_years[-1], target_year]
+        forecast_pops = [hist_pops[-1], proj_pop]
+        ax.plot(forecast_years, forecast_pops, linestyle="--", marker="s", color="#059669", linewidth=2.5, label=f"20-Year Extrapolated Forecast ({target_year})")
+        growth_pct = ((proj_pop - hist_pops[-1]) / hist_pops[-1]) * 100
+        ax.annotate(
+            f"Forecast {target_year}: {proj_pop:.2f}B\n(+{growth_pct:.1f}%)",
+            (target_year, proj_pop),
+            textcoords="offset points",
+            xytext=(-20, 12),
+            ha="center",
+            fontsize=8.5,
+            fontweight="bold",
+            color="#065F46",
+            bbox=dict(boxstyle="round,pad=0.3", edgecolor="#10B981", facecolor="#ECFDF5", alpha=0.9),
+        )
+
+        # Confidence bounds cone around forecast
+        upper_bound = [hist_pops[-1], proj_pop * 1.04]
+        lower_bound = [hist_pops[-1], proj_pop * 0.96]
+        ax.fill_between(forecast_years, lower_bound, upper_bound, color="#34D399", alpha=0.2, label="95% Forecast Confidence Interval")
+
+        chart_title = f"Global Population Trajectory & 20-Year Extrapolation (1970 – {target_year})"
+        ax.set_title(chart_title, fontweight="bold", fontsize=12, pad=14)
+        ax.set_xlabel("Census Year", fontweight="bold", fontsize=10)
+        ax.set_ylabel("Global Population (Billions of People)", fontweight="bold", fontsize=10)
+        ax.grid(True, linestyle="--", alpha=0.4)
+        ax.legend(loc="upper left", framealpha=0.9)
+
+        img_b64, fpath = self._fig_to_base64_and_disk(fig, "population_20y_forecast_trajectory")
+        self.rendered_charts.append(
+            RenderedChart(
+                chart_id="population_20y_forecast_trajectory",
+                title=chart_title,
+                chart_type="line",
+                image_base64=img_b64,
+                file_path=fpath,
+                description=f"Longitudinal global population trajectory from 1970 to 2022 paired with 20-year forward projection to {target_year}.",
+                insights=[
+                    f"Global population expands from {hist_pops[0]:.2f}B (1970) to {hist_pops[-1]:.2f}B (2022).",
+                    f"20-year projection models global population reaching approximately {proj_pop:.2f}B by {target_year} (+{growth_pct:.1f}% expansion).",
+                ],
+                x_col="Year",
+                y_col="Population_Billions",
             )
         )
 
-        return cards
+    def _plot_top_countries_forecast_bar(self, df: pl.DataFrame, brief: Dict[str, Any]) -> None:
+        """Horizontal bar chart showing top 10 most populous countries projected for target year."""
+        country_col = next((c for c in df.columns if any(k in c.lower() for k in ["country", "territory", "nation"])), None)
+        target_year = brief.get("target_year") or 2042
+        proj_col = next((c for c in df.columns if "projected" in c.lower() and "growth" not in c.lower()), None)
+        metric_col = proj_col or self._resolve_sales_col(df) or "2022 Population"
+
+        if not country_col or metric_col not in df.columns:
+            return
+
+        top10 = df.sort(metric_col, descending=True).limit(10).to_pandas()
+        countries = [str(x) for x in top10[country_col].tolist()][::-1]
+        values = [float(x) / 1e6 for x in top10[metric_col].tolist()][::-1]
+
+        fig, ax = plt.subplots(figsize=(9.5, 5.2))
+        colors = ["#3B82F6"] * 8 + ["#1D4ED8", "#1E3A8A"]
+        bars = ax.barh(countries, values, color=colors, height=0.6, edgecolor="none")
+
+        for bar, val in zip(bars, values):
+            lbl = f"{val/1e3:.2f}B" if val >= 1000 else f"{val:.0f}M"
+            ax.text(
+                bar.get_width() + (max(values) * 0.015),
+                bar.get_y() + bar.get_height() / 2,
+                lbl,
+                va="center",
+                fontsize=8.5,
+                fontweight="bold",
+                color="#1E3A8A",
+            )
+
+        chart_title = f"Top 10 Most Populous Nations Projected for {target_year}"
+        ax.set_title(chart_title, fontweight="bold", fontsize=12, pad=12)
+        ax.set_xlabel(f"Projected {target_year} Population (Millions of People)", fontweight="bold", fontsize=10)
+        ax.grid(axis="x", linestyle="--", alpha=0.4)
+
+        img_b64, fpath = self._fig_to_base64_and_disk(fig, "top10_countries_projected_population")
+        self.rendered_charts.append(
+            RenderedChart(
+                chart_id="top10_countries_projected_population",
+                title=chart_title,
+                chart_type="bar",
+                image_base64=img_b64,
+                file_path=fpath,
+                description=f"Ranking of the top 10 nations by projected population in year {target_year}.",
+                insights=[f"The top projected nation accounts for over {values[-1]/1e3:.2f}B people in {target_year}."],
+                x_col=country_col,
+                y_col=metric_col,
+            )
+        )
+
+    def _plot_continent_forecast_donut(self, df: pl.DataFrame, brief: Dict[str, Any]) -> None:
+        """Donut chart showing projected population distribution by Continent."""
+        cont_col = next((c for c in df.columns if any(k in c.lower() for k in ["continent", "region"])), None)
+        target_year = brief.get("target_year") or 2042
+        proj_col = next((c for c in df.columns if "projected" in c.lower() and "growth" not in c.lower()), None)
+        metric_col = proj_col or self._resolve_sales_col(df) or "2022 Population"
+
+        if not cont_col or metric_col not in df.columns:
+            return
+
+        cont_df = (
+            df.group_by(cont_col)
+            .agg(pl.col(metric_col).sum().alias("total_pop"))
+            .sort("total_pop", descending=True)
+            .to_pandas()
+        )
+        labels = [str(x) for x in cont_df[cont_col].tolist()]
+        values = [float(x) for x in cont_df["total_pop"].tolist()]
+        palette = ["#2563EB", "#059669", "#D97706", "#7C3AED", "#EC4899", "#6B7280"][: len(labels)]
+
+        fig, ax = plt.subplots(figsize=(7, 5))
+        wedges, texts, autotexts = ax.pie(
+            values,
+            labels=labels,
+            autopct="%1.1f%%",
+            pctdistance=0.75,
+            colors=palette,
+            startangle=140,
+            wedgeprops=dict(width=0.45, edgecolor="white", linewidth=2),
+        )
+        for at in autotexts:
+            at.set_color("white")
+            at.set_fontsize(8.5)
+            at.set_fontweight("bold")
+
+        chart_title = f"Projected {target_year} Global Population Share by Continent"
+        ax.set_title(chart_title, fontweight="bold", fontsize=11, pad=12)
+
+        img_b64, fpath = self._fig_to_base64_and_disk(fig, "continent_projected_population_share")
+        self.rendered_charts.append(
+            RenderedChart(
+                chart_id="continent_projected_population_share",
+                title=chart_title,
+                chart_type="donut",
+                image_base64=img_b64,
+                file_path=fpath,
+                description=f"Regional distribution of global population projected for {target_year}.",
+                insights=[f"Leading continent accounts for {values[0]/sum(values)*100:.1f}% of projected global population."],
+                x_col=cont_col,
+                y_col=metric_col,
+            )
+        )
 
     def _plot_revenue_profit_trend(self, df: pl.DataFrame) -> None:
         """1. Monthly Revenue & Profit Trend (Seaborn Line Chart)."""

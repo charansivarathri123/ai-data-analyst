@@ -54,7 +54,7 @@ import {
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { LogoMark } from "@/components/LogoMark";
 
-import { api, CleanDatasetResult, UploadDatasetResult } from "@/lib/api";
+import { api, CleanDatasetResult, UploadDatasetResult, RecommendedQuestion } from "@/lib/api";
 import {
   AgentRole,
   PipelineStatus,
@@ -107,6 +107,7 @@ export default function DashboardPage() {
 
   const [businessPrompt, setBusinessPrompt] = useState("");
   const [targetMetric, setTargetMetric] = useState("");
+  const [recommendedQuestions, setRecommendedQuestions] = useState<RecommendedQuestion[]>([]);
   const [pipelineStatus, setPipelineStatus] = useState<PipelineStatus>("idle");
   const [activeTab, setActiveTab] = useState<
     | "scorecard"
@@ -278,6 +279,7 @@ export default function DashboardPage() {
       setCurrentDatasetId(res.dataset_id);
       setDatasetMeta(res.metadata);
       setRawPreview(res.preview_rows);
+      setRecommendedQuestions(res.recommended_questions || []);
       setCleanPreview([]);
       setTransformedPreview([]);
       setScorecard(null);
@@ -329,6 +331,7 @@ export default function DashboardPage() {
         setCurrentDatasetId(res.dataset_id);
         setDatasetMeta(res.metadata);
         setRawPreview(res.preview_rows);
+        setRecommendedQuestions(res.recommended_questions || []);
         setCleanPreview([]);
         setTransformedPreview([]);
         setScorecard(null);
@@ -373,6 +376,18 @@ export default function DashboardPage() {
   const handleRunFullPipeline = async () => {
     if (!currentDatasetId) {
       setErrorMessage("Please upload a dataset or load the demo dataset first.");
+      return;
+    }
+
+    const trimmedPrompt = businessPrompt.trim();
+    if (!trimmedPrompt) {
+      setErrorMessage("A proper problem statement is required before running the pipeline. Please describe the problem or question you want the agents to solve.");
+      return;
+    }
+
+    const promptWords = trimmedPrompt.split(/\s+/).filter(Boolean);
+    if (trimmedPrompt.length < 10 || promptWords.length < 3) {
+      setErrorMessage("Please provide a proper problem statement (at least 10 characters and 3 words, e.g. 'Predict population after 20 years').");
       return;
     }
 
@@ -605,6 +620,7 @@ export default function DashboardPage() {
               isLoading={isLoading}
               currentDatasetId={currentDatasetId}
               errorMessage={errorMessage}
+              recommendedQuestions={recommendedQuestions}
               onBusinessPromptChange={setBusinessPrompt}
               onTargetMetricChange={setTargetMetric}
               onRunPipeline={handleRunFullPipeline}

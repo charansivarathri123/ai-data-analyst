@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.agents.cleaner import data_cleaner_agent
 from app.agents.diagnostic import root_cause_agent
@@ -77,6 +77,9 @@ def _execute_pipeline_steps(session_id: str, initial_state: AgentState):
         logger.info(f"[Pipeline] Starting Step 0: Orchestrator for session {session_id}")
         state = orchestrator_agent(state)
         _sessions[session_id] = state
+        if state.get("status") == "failed":
+            logger.error(f"[Pipeline] Orchestrator Step 0 failed: {state.get('error')}")
+            return
         brief = state.get("analysis_brief", {})
 
         # Step 1: Agent 1 - Data Cleaner
@@ -162,18 +165,38 @@ def _execute_pipeline_steps(session_id: str, initial_state: AgentState):
 class RunPipelineRequest(BaseModel):
     dataset_id: str
     business_prompt: str = Field(
-        default="",
-        description="Optional business hypothesis or problem statement for the agents to investigate.",
+        ...,
+        description="Mandatory business problem statement or analytical question to solve.",
     )
     target_metric: str = Field(
         default="",
         description="Optional focal KPI (e.g., 'gross_revenue', 'total_sales', 'churn_rate').",
     )
 
+    @field_validator("business_prompt")
+    @classmethod
+    def validate_problem_statement(cls, v: str) -> str:
+        clean = (v or "").strip()
+        if not clean:
+            raise ValueError("A problem statement is required before running the pipeline.")
+        words = [w for w in clean.split() if w]
+        if len(clean) < 10 or len(words) < 3:
+            raise ValueError(
+                "Please provide a proper problem statement (at least 10 characters and 3 words, e.g. 'Predict population after 20 years')."
+            )
+        return clean
+
 
 @router.post("/run", tags=["Pipeline"])
 async def run_pipeline(payload: RunPipelineRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
     """Triggers the sequential agent execution pipeline in background to prevent HTTP timeouts."""
+    clean_prompt = (payload.business_prompt or "").strip()
+    words = [w for w in clean_prompt.split() if w]
+    if not clean_prompt or len(clean_prompt) < 10 or len(words) < 3:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A proper problem statement is required before running the pipeline (minimum 10 characters and 3 words).",
+        )
     paths = _get_paths()
     dataset_id = payload.dataset_id
 

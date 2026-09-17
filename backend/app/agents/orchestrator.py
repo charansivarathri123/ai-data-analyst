@@ -33,7 +33,15 @@ def orchestrator_agent(state: AgentState) -> AgentState:
         return state
 
     raw_path = dataset_info["file_path"]
-    business_prompt = state.get("business_prompt", "") or ""
+    business_prompt = (state.get("business_prompt", "") or "").strip()
+    words = [w for w in business_prompt.split() if w]
+    if not business_prompt or len(business_prompt) < 10 or len(words) < 3:
+        err_msg = "A proper problem statement is required before running the pipeline (minimum 10 characters and 3 words)."
+        logger.error(f"[Orchestrator] Ingestion error: {err_msg}")
+        state["status"] = "failed"
+        state["error"] = err_msg
+        return state
+
     target_metric_hint = state.get("target_metric")
 
     try:

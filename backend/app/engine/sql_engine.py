@@ -153,60 +153,12 @@ LIMIT 20;""",
             read_stmt = f"read_csv_auto('{sql_path}')"
 
         self.con.execute(f"CREATE OR REPLACE VIEW raw_source AS SELECT * FROM {read_stmt}")
-        cols = [c.lower() for c in self.con.table("raw_source").columns]
 
-        # Harmonize common business column aliases for seamless query execution across schemas
-        extra_projections = []
-        if "total_sales" not in cols and "gross_revenue" in cols:
-            extra_projections.append("gross_revenue AS total_sales")
-        elif "gross_revenue" not in cols and "total_sales" in cols:
-            extra_projections.append("total_sales AS gross_revenue")
-
-        if "category" not in cols and "customer_segment" in cols:
-            extra_projections.append("customer_segment AS category")
-
-        if "order_id" not in cols and "transaction_id" in cols:
-            extra_projections.append("transaction_id AS order_id")
-
-        if "customer_id" not in cols:
-            if "customer_segment" in cols:
-                extra_projections.append("customer_segment AS customer_id")
-            elif "transaction_id" in cols:
-                extra_projections.append("transaction_id AS customer_id")
-            else:
-                extra_projections.append("'CUST-001' AS customer_id")
-
-        if "payment_method" not in cols:
-            extra_projections.append("'Direct Payment' AS payment_method")
-
-        if "discount_percent" not in cols and "discount_rate" in cols:
-            extra_projections.append("discount_rate AS discount_percent")
-        elif "discount_percent" not in cols:
-            extra_projections.append("0.05 AS discount_percent")
-
-        if "quantity" not in cols and "units_sold" in cols:
-            extra_projections.append("units_sold AS quantity")
-        elif "quantity" not in cols:
-            extra_projections.append("1.0 AS quantity")
-
-        if "unit_price" not in cols:
-            if "gross_revenue" in cols and "units_sold" in cols:
-                extra_projections.append("ROUND(gross_revenue / NULLIF(units_sold, 0), 2) AS unit_price")
-            elif "total_sales" in cols and "quantity" in cols:
-                extra_projections.append("ROUND(total_sales / NULLIF(quantity, 0), 2) AS unit_price")
-            else:
-                extra_projections.append("100.0 AS unit_price")
-
-        if "customer_satisfaction" not in cols:
-            extra_projections.append("4.5 AS customer_satisfaction")
-
-        proj_str = ", ".join(["*"] + extra_projections)
-        self.con.execute(f"CREATE OR REPLACE VIEW analytics_data AS SELECT {proj_str} FROM raw_source")
+        # Real schema projection without fake synthetic columns
+        self.con.execute("CREATE OR REPLACE VIEW analytics_data AS SELECT * FROM raw_source")
         self.con.execute("CREATE OR REPLACE VIEW raw_dataset AS SELECT * FROM analytics_data")
         self.con.execute("CREATE OR REPLACE VIEW dataset AS SELECT * FROM analytics_data")
         self.con.execute("CREATE OR REPLACE VIEW data AS SELECT * FROM analytics_data")
-        self.con.execute("CREATE OR REPLACE VIEW orders AS SELECT * FROM analytics_data")
-        self.con.execute("CREATE OR REPLACE VIEW sales_fact AS SELECT * FROM analytics_data")
 
     def inspect_schema(self, table_name: str = "analytics_data") -> SQLTableSchema:
         """Inspects table columns, data types, row count, and generates CREATE TABLE DDL."""
@@ -369,6 +321,8 @@ LIMIT 20;""",
             if primary_dim:
                 group_cols = [primary_dim] + ([sec_dim] if sec_dim else [])
                 grain_desc = f"One row per {' and '.join(group_cols)}"
+                clean_alias = target_met.lower().replace(" ", "_").replace("/", "_")
+                quoted_groups = ", ".join(f'"{c}"' for c in group_cols)
                 brief_sql = f"""/*
  * Analysis Brief Focal Query
  * Grain: {grain_desc}
@@ -376,16 +330,16 @@ LIMIT 20;""",
  */
 WITH aggregated_metrics AS (
     SELECT
-        {', '.join(group_cols)},
+        {quoted_groups},
         COUNT(*) AS row_count,
-        ROUND(SUM(TRY_CAST({target_met} AS DOUBLE)), 2) AS total_{target_met},
-        ROUND(AVG(TRY_CAST({target_met} AS DOUBLE)), 2) AS avg_{target_met}
+        ROUND(SUM(TRY_CAST("{target_met}" AS DOUBLE)), 2) AS total_{clean_alias},
+        ROUND(AVG(TRY_CAST("{target_met}" AS DOUBLE)), 2) AS avg_{clean_alias}
     FROM analytics_data
-    WHERE {primary_dim} IS NOT NULL
+    WHERE "{primary_dim}" IS NOT NULL
     GROUP BY {', '.join(str(i+1) for i in range(len(group_cols)))}
 )
 SELECT * FROM aggregated_metrics
-ORDER BY total_{target_met} DESC
+ORDER BY total_{clean_alias} DESC
 LIMIT 20;"""
                 brief_tmpl = SQLTemplate(
                     template_id="brief_target_metric_decomposition",
@@ -401,25 +355,116 @@ LIMIT 20;"""
                 except Exception as e:
                     print(f"[WARN] Failed to run brief query: {e}")
 
-        for tmpl in self.DEFAULT_TEMPLATES:
-            templates.append(
-                SQLTemplate(
-                    template_id=tmpl["template_id"],
-                    name=tmpl["name"],
-                    business_question=tmpl["business_question"],
-                    sql_query=tmpl["sql_query"],
-                    category=tmpl["category"],
+        domain = self.brief.get("dataset_domain", "")
+        is_demographic = domain == "demographics" or any("pop" in c for c in avail_cols)
+
+        if is_demographic:
+            country_col = next((c.name for c in schema.columns if any(k in c.name.lower() for k in ["country", "territory", "nation"])), None)
+            cont_col = next((c.name for c in schema.columns if any(k in c.name.lower() for k in ["continent", "region"])), None)
+            pop_col = next((c.name for c in schema.columns if "2022" in c.name and "pop" in c.name.lower()), None)
+            if not pop_col:
+                pop_col = next((c.name for c in schema.columns if "pop" in c.name.lower() and "pct" not in c.name.lower() and "growth" not in c.name.lower()), None)
+
+            proj_col = next((c.name for c in schema.columns if "projected" in c.name.lower() and "growth" not in c.name.lower()), None)
+            rate_col = next((c.name for c in schema.columns if "growth" in c.name.lower() or "cagr" in c.name.lower()), None)
+
+            # Template 1: Top 15 Most Populous Nations
+            if country_col and pop_col:
+                proj_select = f', "{proj_col}" AS projected_population' if proj_col else ''
+                t1_sql = f"""SELECT 
+    "{country_col}" AS country,
+    {f'"{cont_col}" AS continent,' if cont_col else ''}
+    "{pop_col}" AS current_population
+    {proj_select}
+FROM analytics_data
+WHERE "{country_col}" IS NOT NULL
+ORDER BY "{pop_col}" DESC
+LIMIT 15;"""
+                t1 = SQLTemplate(
+                    template_id="demographic_top_nations",
+                    name="Top 15 Most Populous Nations",
+                    business_question="Which nations currently have the highest enumerated population?",
+                    sql_query=t1_sql,
+                    category="Demographic Analysis",
                 )
-            )
-            try:
-                res = self.execute_query(
-                    sql=tmpl["sql_query"],
-                    query_name=tmpl["name"],
-                    limit=50,
+                templates.append(t1)
+                try:
+                    res = self.execute_query(sql=t1_sql, query_name=t1.name, limit=50)
+                    executed_results.append(res)
+                except Exception as e:
+                    print(f"[WARN] Failed template t1: {e}")
+
+            # Template 2: Continental Population Rollup
+            if cont_col and pop_col:
+                proj_sum = f', SUM(TRY_CAST("{proj_col}" AS BIGINT)) AS projected_continent_population' if proj_col else ''
+                t2_sql = f"""SELECT 
+    "{cont_col}" AS continent,
+    COUNT(*) AS total_countries,
+    SUM(TRY_CAST("{pop_col}" AS BIGINT)) AS current_continent_population
+    {proj_sum}
+FROM analytics_data
+WHERE "{cont_col}" IS NOT NULL
+GROUP BY 1
+ORDER BY current_continent_population DESC;"""
+                t2 = SQLTemplate(
+                    template_id="demographic_continent_rollup",
+                    name="Continental Population & Nation Rollup",
+                    business_question="What is the total population and country distribution across continents?",
+                    sql_query=t2_sql,
+                    category="Demographic Analysis",
                 )
-                executed_results.append(res)
-            except Exception as e:
-                print(f"[WARN] Failed to auto-execute template '{tmpl['name']}': {e}")
+                templates.append(t2)
+                try:
+                    res = self.execute_query(sql=t2_sql, query_name=t2.name, limit=50)
+                    executed_results.append(res)
+                except Exception as e:
+                    print(f"[WARN] Failed template t2: {e}")
+
+            # Template 3: Growth Velocity Leaders
+            if country_col and rate_col:
+                t3_sql = f"""SELECT 
+    "{country_col}" AS country,
+    {f'"{cont_col}" AS continent,' if cont_col else ''}
+    "{rate_col}" AS demographic_growth_velocity
+FROM analytics_data
+WHERE "{country_col}" IS NOT NULL AND "{rate_col}" IS NOT NULL
+ORDER BY "{rate_col}" DESC
+LIMIT 15;"""
+                t3 = SQLTemplate(
+                    template_id="demographic_growth_leaders",
+                    name="Fastest Growing Nations (Growth Velocity)",
+                    business_question="Which nations exhibit the highest compound growth velocity?",
+                    sql_query=t3_sql,
+                    category="Growth Analysis",
+                )
+                templates.append(t3)
+                try:
+                    res = self.execute_query(sql=t3_sql, query_name=t3.name, limit=50)
+                    executed_results.append(res)
+                except Exception as e:
+                    print(f"[WARN] Failed template t3: {e}")
+
+        else:
+            # E-commerce Suite
+            for tmpl in self.DEFAULT_TEMPLATES:
+                templates.append(
+                    SQLTemplate(
+                        template_id=tmpl["template_id"],
+                        name=tmpl["name"],
+                        business_question=tmpl["business_question"],
+                        sql_query=tmpl["sql_query"],
+                        category=tmpl["category"],
+                    )
+                )
+                try:
+                    res = self.execute_query(
+                        sql=tmpl["sql_query"],
+                        query_name=tmpl["name"],
+                        limit=50,
+                    )
+                    executed_results.append(res)
+                except Exception as e:
+                    print(f"[WARN] Failed to auto-execute template '{tmpl['name']}': {e}")
 
         return SQLAnalyticsOutput(
             database_engine="DuckDB In-Memory Analytical Engine (v1.0+)",
