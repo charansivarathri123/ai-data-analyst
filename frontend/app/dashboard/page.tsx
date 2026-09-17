@@ -136,7 +136,7 @@ export default function DashboardPage() {
 
   // Agent 4: SQL Analytics
   const [sqlOutput, setSqlOutput] = useState<SQLAnalyticsOutput | null>(null);
-  const [sqlQuery, setSqlQuery] = useState<string>("SELECT * FROM raw_dataset LIMIT 10;");
+  const [sqlQuery, setSqlQuery] = useState<string>("SELECT * FROM analytics_data LIMIT 10;");
   const [sqlQueryName, setSqlQueryName] = useState<string>("Custom Query");
   const [sqlResult, setSqlResult] = useState<SQLQueryResult | null>(null);
   const [sqlTemplates, setSqlTemplates] = useState<SQLTemplate[]>([]);
@@ -1371,7 +1371,7 @@ export default function DashboardPage() {
                     onChange={(e) => setSqlQuery(e.target.value)}
                     rows={4}
                     className="w-full font-mono text-xs rounded-xl border border-b-subtle p-3 bg-surface-1 text-t-primary focus:outline-none focus:border-b-hover resize-none"
-                    placeholder="SELECT * FROM raw_dataset LIMIT 10;"
+                    placeholder="SELECT * FROM analytics_data LIMIT 10;"
                   />
 
                   <div className="flex items-center justify-between pt-1 flex-wrap gap-2">

@@ -202,6 +202,9 @@ LIMIT 20;""",
 
         proj_str = ", ".join(["*"] + extra_projections)
         self.con.execute(f"CREATE OR REPLACE VIEW analytics_data AS SELECT {proj_str} FROM raw_source")
+        self.con.execute("CREATE OR REPLACE VIEW raw_dataset AS SELECT * FROM analytics_data")
+        self.con.execute("CREATE OR REPLACE VIEW dataset AS SELECT * FROM analytics_data")
+        self.con.execute("CREATE OR REPLACE VIEW data AS SELECT * FROM analytics_data")
         self.con.execute("CREATE OR REPLACE VIEW orders AS SELECT * FROM analytics_data")
         self.con.execute("CREATE OR REPLACE VIEW sales_fact AS SELECT * FROM analytics_data")
 
