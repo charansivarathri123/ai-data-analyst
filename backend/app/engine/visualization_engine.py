@@ -133,18 +133,22 @@ class DataVisualizationEngine:
         )
 
     def _fig_to_base64_and_disk(self, fig: plt.Figure, chart_id: str) -> Tuple[str, str]:
-        """Saves Matplotlib figure to a high-res 300 DPI PNG on disk and encodes as base64 string."""
+        """Saves Matplotlib figure to PNG on disk and encodes as base64 string with high performance."""
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
-        buf.seek(0)
-        img_base64 = base64.b64encode(buf.read()).decode("utf-8")
-        buf.close()
+        try:
+            fig.savefig(buf, format="png", dpi=120, bbox_inches="tight")
+            buf.seek(0)
+            img_bytes = buf.read()
+            img_base64 = base64.b64encode(img_bytes).decode("utf-8")
 
-        file_path = os.path.join(self.export_dir, f"{chart_id}.png")
-        fig.savefig(file_path, format="png", dpi=300, bbox_inches="tight")
-        plt.close(fig)
+            file_path = os.path.join(self.export_dir, f"{chart_id}.png")
+            with open(file_path, "wb") as f:
+                f.write(img_bytes)
 
-        return img_base64, file_path
+            return img_base64, file_path
+        finally:
+            buf.close()
+            plt.close(fig)
 
     def _generate_kpi_cards(self, df: pl.DataFrame) -> List[VisualKPICard]:
         """Calculates headline KPI cards with formatted numbers and trajectories."""

@@ -17,7 +17,7 @@ import glob
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.agents.cleaner import data_cleaner_agent
@@ -37,6 +37,57 @@ router = APIRouter(prefix="/api/pipeline", tags=["Pipeline"])
 _sessions: Dict[str, AgentState] = {}
 
 
+def _execute_pipeline_steps(session_id: str, initial_state: AgentState):
+    """Executes all 7 agents in background, continuously updating session status."""
+    state = initial_state
+    try:
+        # Step 1: Agent 1 - Data Cleaner
+        state = data_cleaner_agent(state)
+        _sessions[session_id] = state
+        if state.get("status") == "failed":
+            return
+
+        # Step 2: Agent 2 - Data Transformer & Features
+        state = data_transformer_agent(state)
+        _sessions[session_id] = state
+        if state.get("status") == "failed":
+            return
+
+        # Step 3: Agent 3 - EDA & Statistical Analysis
+        state = eda_features_agent(state)
+        _sessions[session_id] = state
+        if state.get("status") == "failed":
+            return
+
+        # Step 4: Agent 4 - SQL Analysis & Query Studio
+        state = sql_analytics_agent(state)
+        _sessions[session_id] = state
+        if state.get("status") == "failed":
+            return
+
+        # Step 5: Agent 5 - Root-Cause Diagnostics
+        state = root_cause_agent(state)
+        _sessions[session_id] = state
+        if state.get("status") == "failed":
+            return
+
+        # Step 6: Agent 6 - Data Visualizer (Matplotlib & Seaborn)
+        state = data_visualizer_agent(state)
+        _sessions[session_id] = state
+        if state.get("status") == "failed":
+            return
+
+        # Step 7: Agent 7 - Power BI Architect
+        state = powerbi_architect_agent(state)
+        if state.get("status") != "failed":
+            state["status"] = "completed"
+        _sessions[session_id] = state
+    except Exception as exc:
+        state["status"] = "failed"
+        state["error"] = str(exc)
+        _sessions[session_id] = state
+
+
 class RunPipelineRequest(BaseModel):
     dataset_id: str
     business_prompt: str = Field(
@@ -50,8 +101,8 @@ class RunPipelineRequest(BaseModel):
 
 
 @router.post("/run", tags=["Pipeline"])
-async def run_pipeline(payload: RunPipelineRequest) -> Dict[str, Any]:
-    """Triggers the sequential 7-agent execution pipeline."""
+async def run_pipeline(payload: RunPipelineRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
+    """Triggers the sequential 7-agent execution pipeline in background to prevent HTTP timeouts."""
     paths = _get_paths()
     dataset_id = payload.dataset_id
 
@@ -89,51 +140,10 @@ async def run_pipeline(payload: RunPipelineRequest) -> Dict[str, Any]:
         "step_history": [],
         "retry_count": 0,
     }
-
-    # Step 1: Agent 1 - Data Cleaner
-    state = data_cleaner_agent(state)
-    if state.get("status") == "failed":
-        _sessions[session_id] = state
-        return state
-
-    # Step 2: Agent 2 - Data Transformer & Features [NEW]
-    state = data_transformer_agent(state)
-    if state.get("status") == "failed":
-        _sessions[session_id] = state
-        return state
-
-    # Step 3: Agent 3 - EDA & Statistical Analysis
-    state = eda_features_agent(state)
-    if state.get("status") == "failed":
-        _sessions[session_id] = state
-        return state
-
-    # Step 4: Agent 4 - SQL Analysis & Query Studio [NEW]
-    state = sql_analytics_agent(state)
-    if state.get("status") == "failed":
-        _sessions[session_id] = state
-        return state
-
-    # Step 5: Agent 5 - Root-Cause Diagnostics
-    state = root_cause_agent(state)
-    if state.get("status") == "failed":
-        _sessions[session_id] = state
-        return state
-
-    # Step 6: Agent 6 - Data Visualizer (Matplotlib & Seaborn) [NEW]
-    state = data_visualizer_agent(state)
-    if state.get("status") == "failed":
-        _sessions[session_id] = state
-        return state
-
-    # Step 7: Agent 7 - Power BI Architect
-    state = powerbi_architect_agent(state)
-    if state.get("status") == "failed":
-        _sessions[session_id] = state
-        return state
-
-    state["status"] = "completed"
     _sessions[session_id] = state
+
+    # Dispatch to background task for instantaneous HTTP response
+    background_tasks.add_task(_execute_pipeline_steps, session_id, state)
 
     return state
 

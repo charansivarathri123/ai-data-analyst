@@ -298,11 +298,13 @@ export const api = {
 
   /**
    * Start the multi-agent pipeline with user business prompt and optional target metric.
+   * Runs asynchronously in background to prevent HTTP gateway timeouts, polling until completion.
    */
   async startPipeline(
     datasetId: string,
     businessPrompt = "",
-    targetMetric = ""
+    targetMetric = "",
+    onProgress?: (state: AgentState) => void
   ): Promise<AgentState> {
     const res = await fetch(`${API_BASE}/api/pipeline/run`, {
       method: "POST",
@@ -319,7 +321,53 @@ export const api = {
       throw new Error(err.detail || "Failed to trigger pipeline");
     }
 
-    return res.json();
+    const initData: AgentState = await res.json();
+    if (initData.status === "completed") {
+      return initData;
+    }
+
+    const sessionId = initData.session_id;
+    if (!sessionId) {
+      return initData;
+    }
+
+    // Call initial onProgress
+    if (onProgress) {
+      onProgress(initData);
+    }
+
+    // Poll until completed or failed (up to 4 minutes max)
+    const maxPolls = 240;
+    for (let i = 0; i < maxPolls; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      try {
+        const statusRes = await fetch(`${API_BASE}/api/pipeline/status/${sessionId}`, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (statusRes.ok) {
+          const polledState: AgentState = await statusRes.json();
+          if (onProgress) {
+            onProgress(polledState);
+          }
+          if (polledState.status === "completed") {
+            return polledState;
+          }
+          if (polledState.status === "failed") {
+            throw new Error(polledState.error || "Multi-agent pipeline encountered an execution error.");
+          }
+        }
+      } catch (pollErr: unknown) {
+        // If an explicit failure error was thrown from inside
+        if (pollErr instanceof Error && pollErr.message.includes("Multi-agent pipeline")) {
+          throw pollErr;
+        }
+        // Transient network hiccup during polling - keep retrying
+      }
+    }
+
+    throw new Error("Pipeline execution timed out. Please verify your connection or try again.");
   },
 
   /**

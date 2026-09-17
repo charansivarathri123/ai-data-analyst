@@ -381,49 +381,22 @@ export default function DashboardPage() {
     setActiveAgent("data_cleaner");
 
     try {
-      // Real-time animation transitions across the 7 stages
-      const t1 = setTimeout(() => {
-        setPipelineStatus("transforming");
-        setActiveAgent("data_transformer");
-      }, 600);
-
-      const t2 = setTimeout(() => {
-        setPipelineStatus("analyzing");
-        setActiveAgent("eda_features");
-      }, 1200);
-
-      const t3 = setTimeout(() => {
-        setPipelineStatus("querying_sql");
-        setActiveAgent("sql_analytics");
-      }, 1800);
-
-      const t4 = setTimeout(() => {
-        setPipelineStatus("diagnosing");
-        setActiveAgent("root_cause_engine");
-      }, 2400);
-
-      const t5 = setTimeout(() => {
-        setPipelineStatus("visualizing");
-        setActiveAgent("data_visualizer");
-      }, 3000);
-
-      const t6 = setTimeout(() => {
-        setPipelineStatus("generating_bi");
-        setActiveAgent("powerbi_architect");
-      }, 3600);
-
       const state: AgentState = await api.startPipeline(
         currentDatasetId,
         businessPrompt,
-        targetMetric
+        targetMetric,
+        (liveState) => {
+          if (liveState.status) {
+            setPipelineStatus(liveState.status as PipelineStatus);
+          }
+          if (liveState.current_agent) {
+            setActiveAgent(liveState.current_agent as AgentRole);
+          }
+          if (liveState.session_id) {
+            setCurrentSessionId(liveState.session_id);
+          }
+        }
       );
-
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
-      clearTimeout(t4);
-      clearTimeout(t5);
-      clearTimeout(t6);
 
       setCurrentSessionId(state.session_id);
 
