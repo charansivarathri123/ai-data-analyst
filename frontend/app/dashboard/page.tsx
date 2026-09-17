@@ -963,6 +963,123 @@ export default function DashboardPage() {
             )}
 
             {/* ========================================================================= */}
+            {/* TAB 2: Feature Engineering & Data Transformation (Agent 2)               */}
+            {/* ========================================================================= */}
+            {activeTab === "transformation" && (
+              <div className="space-y-6">
+                {transformationOutput ? (
+                  <>
+                    {/* Transformation Overview Counters */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="p-4 rounded-xl bg-surface-2 border border-b-subtle">
+                        <span className="text-xs text-t-secondary">Total Features</span>
+                        <p className="text-2xl font-mono font-bold text-t-primary mt-1">
+                          {transformationOutput.total_features}
+                        </p>
+                        <span className="text-[11px] text-t-secondary font-mono">
+                          Ready for modeling &amp; analytics
+                        </span>
+                      </div>
+                      <div className="p-4 rounded-xl bg-surface-2 border border-b-subtle">
+                        <span className="text-xs text-t-secondary">Engineered Features Created</span>
+                        <p className="text-2xl font-mono font-bold text-t-primary mt-1">
+                          +{transformationOutput.features_created}
+                        </p>
+                        <span className="text-[11px] text-accent-cool font-mono">
+                          Scaling, binning, temporal &amp; encodings
+                        </span>
+                      </div>
+                      <div className="p-4 rounded-xl bg-surface-2 border border-b-subtle">
+                        <span className="text-xs text-t-secondary">Pipeline Operations Executed</span>
+                        <p className="text-2xl font-mono font-bold text-t-primary mt-1">
+                          {transformationOutput.transformation_history.length}
+                        </p>
+                        <span className="text-[11px] text-t-secondary font-mono">
+                          Deterministic Polars pipeline
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Transformed Feature Catalog */}
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-xs font-semibold text-t-primary flex items-center gap-2">
+                          <Sparkles className="h-4 w-4 text-t-secondary" />
+                          Engineered Features Catalog
+                        </h4>
+                        <span className="text-[11px] font-mono text-t-secondary">
+                          {transformationOutput.feature_catalog.length} Engineered Features
+                        </span>
+                      </div>
+                      <div className="rounded-xl border border-b-subtle overflow-x-auto text-xs bg-surface-2">
+                        <table className="w-full text-left">
+                          <thead className="bg-surface-1 border-b border-b-subtle text-t-secondary font-medium font-mono text-[11px]">
+                            <tr>
+                              <th className="p-3">Feature Name</th>
+                              <th className="p-3">Type</th>
+                              <th className="p-3">Data Type</th>
+                              <th className="p-3">Formula / Logic</th>
+                              <th className="p-3">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#2c2c2e] font-mono text-t-secondary">
+                            {transformationOutput.feature_catalog.map((feat) => (
+                              <tr key={feat.feature_name} className="hover:bg-surface-1/50 transition-colors">
+                                <td className="p-3 font-semibold text-t-primary">{feat.feature_name}</td>
+                                <td className="p-3">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-surface-1 border border-b-subtle text-t-primary">
+                                    {feat.feature_type}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-t-secondary">{feat.data_type}</td>
+                                <td className="p-3 font-mono text-t-primary truncate max-w-xs">
+                                  {feat.formula}
+                                </td>
+                                <td className="p-3 text-t-secondary font-sans text-xs">
+                                  {feat.description}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Step-by-Step Transformation History Log */}
+                    <div>
+                      <h4 className="text-xs font-semibold text-t-primary mb-3">
+                        Transformation Execution Trace
+                      </h4>
+                      <div className="space-y-2">
+                        {transformationOutput.transformation_history.map((step) => (
+                          <div
+                            key={step.step_index}
+                            className="p-3 rounded-xl bg-surface-2 border border-b-subtle flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-2 font-mono"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-t-secondary">0{step.step_index}.</span>
+                              <span className="font-semibold text-t-primary">{step.operation}</span>
+                              <span className="text-t-secondary">on</span>
+                              <span className="font-bold text-t-primary">{step.column}</span>
+                            </div>
+                            <div className="text-t-secondary text-[11px] truncate">
+                              <code>{step.formula}</code>
+                            </div>
+                            <div className="text-[11px] text-t-secondary">
+                              {step.rows_affected.toLocaleString()} rows affected
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <TransformationEmpty />
+                )}
+              </div>
+            )}
+
+            {/* ========================================================================= */}
             {/* TAB 3: Exploratory Data Analysis & Business Insights (Agent 3)            */}
             {/* ========================================================================= */}
             {activeTab === "eda" && (
@@ -1164,6 +1281,293 @@ export default function DashboardPage() {
                               <span className="font-bold text-t-primary">{o.column}:</span>{" "}
                               <span className="text-t-secondary font-semibold">{o.anomaly_count} outliers</span> ({o.outlier_pct ?? 0}%) beyond bounds [
                               {o.lower_bound} to {o.upper_bound}]
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <EDAEmpty />
+                )}
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB 4: SQL Studio & DuckDB Analytical Queries (Agent 4)                   */}
+            {/* ========================================================================= */}
+            {activeTab === "sql" && (
+              <div className="space-y-6">
+                {/* Engine Banner */}
+                <div className="p-4 rounded-xl bg-surface-2 border border-b-subtle text-t-primary flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <Database className="h-5 w-5 text-t-primary" />
+                    <div>
+                      <h4 className="text-xs font-bold font-mono text-t-primary">DuckDB In-Memory Analytical Engine</h4>
+                      <p className="text-[11px] text-t-secondary">
+                        Columnar OLAP query execution with zero-copy table registration and SQL dialect harmonization.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded bg-surface-1 border border-b-subtle text-t-secondary text-[11px] font-mono">
+                    Read-Only Analytical Sandbox
+                  </span>
+                </div>
+
+                {/* Templates Selector */}
+                {(sqlTemplates?.length ?? 0) > 0 && (
+                  <div>
+                    <label className="block text-xs font-semibold text-t-primary mb-1.5">
+                      Pre-Configured Business Query Templates:
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {sqlTemplates?.map((t) => (
+                        <button
+                          key={t.template_id}
+                          onClick={() => handleSelectTemplate(t.template_id)}
+                          className={`text-xs px-3 py-1.5 rounded-lg font-mono transition-all cursor-pointer ${
+                            selectedTemplateId === t.template_id
+                              ? "bg-surface-3 border border-b-hover text-t-primary font-bold shadow-sm"
+                              : "bg-surface-2 border border-b-subtle text-t-secondary hover:text-t-primary hover:bg-surface-3"
+                          }`}
+                        >
+                          {t.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Interactive SQL Editor */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-t-primary flex items-center gap-1.5">
+                      <Terminal className="h-3.5 w-3.5 text-t-secondary" />
+                      SQL Query Console:
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleCopySql(sqlQuery)}
+                        className="px-2.5 py-1 text-[11px] font-mono text-t-secondary hover:text-t-primary rounded bg-surface-2 border border-b-subtle hover:bg-surface-3 flex items-center gap-1 cursor-pointer transition-colors"
+                      >
+                        {copiedSql ? <Check className="h-3 w-3 text-t-primary" /> : <Copy className="h-3 w-3" />}
+                        <span>{copiedSql ? "Copied" : "Copy SQL"}</span>
+                      </button>
+                    </div>
+                  </div>
+                  <textarea
+                    value={sqlQuery}
+                    onChange={(e) => setSqlQuery(e.target.value)}
+                    rows={4}
+                    className="w-full font-mono text-xs rounded-xl border border-b-subtle p-3 bg-surface-1 text-t-primary focus:outline-none focus:border-b-hover resize-none"
+                    placeholder="SELECT * FROM raw_dataset LIMIT 10;"
+                  />
+
+                  <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
+                    <input
+                      type="text"
+                      value={sqlQueryName}
+                      onChange={(e) => setSqlQueryName(e.target.value)}
+                      placeholder="Query name (optional)"
+                      className="text-xs border border-b-subtle bg-surface-1 rounded-lg px-3 py-1.5 w-64 text-t-primary font-mono placeholder:text-t-secondary"
+                    />
+                    <button
+                      onClick={handleRunSQL}
+                      disabled={sqlRunning || !currentDatasetId}
+                      className="px-4 py-2 text-xs font-semibold text-t-primary rounded-lg bg-surface-2 hover:bg-surface-3 border border-b-subtle hover:border-b-hover inline-flex items-center gap-2 cursor-pointer transition-colors"
+                    >
+                      {sqlRunning ? (
+                        <>
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                          <span>Executing in DuckDB...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="h-3.5 w-3.5 fill-t-primary" />
+                          <span>Run Query</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {sqlError && (
+                  <div className="p-3 rounded-xl bg-surface-2 border border-b-hover text-xs text-t-primary flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 shrink-0 text-accent-warm" />
+                    <span>{sqlError}</span>
+                  </div>
+                )}
+
+                {/* Query Result Section */}
+                {sqlResult ? (
+                  <div className="space-y-4 pt-2 border-t border-b-subtle">
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-surface-2 border border-b-subtle">
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-xs font-mono text-t-primary">{sqlResult.query_name}</span>
+                        <span className="text-[11px] font-mono text-t-secondary">
+                          Rows: <strong className="text-t-primary">{sqlResult.row_count}</strong> • Time: <strong className="text-t-primary">{sqlResult.execution_time_ms} ms</strong>
+                        </span>
+                      </div>
+                      {sqlResult.chart_recommendation && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-surface-1 border border-b-subtle text-t-secondary text-[11px] font-mono font-semibold">
+                          Recommended Viz: {sqlResult.chart_recommendation}
+                        </span>
+                      )}
+                    </div>
+
+                    {sqlResult.explanation && (
+                      <div className="p-3 rounded-xl bg-surface-2 border border-b-subtle text-xs text-t-secondary">
+                        <strong className="text-t-primary">Business Logic:</strong> {sqlResult.explanation}
+                      </div>
+                    )}
+
+                    {/* Result Table Preview */}
+                    <div className="rounded-xl border border-b-subtle overflow-x-auto text-xs max-h-80 bg-surface-2">
+                      <table className="w-full text-left">
+                        <thead className="bg-surface-1 border-b border-b-subtle text-t-secondary font-medium sticky top-0 font-mono">
+                          <tr>
+                            {sqlResult.columns.map((c, i) => (
+                              <th key={c} className="p-3 whitespace-nowrap">
+                                <div>{c}</div>
+                                <div className="text-[9px] text-t-secondary/80 font-normal">
+                                  {sqlResult.column_types[i] ?? ""}
+                                </div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#2c2c2e] font-mono text-t-secondary">
+                          {sqlResult.rows.map((row, idx) => (
+                            <tr key={idx} className="hover:bg-surface-1/50 transition-colors">
+                              {sqlResult.columns.map((c) => (
+                                <td key={c} className="p-3 whitespace-nowrap">
+                                  {row[c] === null ? (
+                                    <span className="text-t-secondary italic">null</span>
+                                  ) : (
+                                    String(row[c])
+                                  )}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <SQLEmpty />
+                )}
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB 5: Root-Cause Diagnostics & Drivers (Agent 5)                         */}
+            {/* ========================================================================= */}
+            {activeTab === "rootcause" && (
+              <div className="space-y-6">
+                {rootCauseOutput ? (
+                  <>
+                    {/* Executive Narrative */}
+                    <div className="p-6 rounded-2xl bg-surface-2 border border-b-subtle space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-semibold text-t-primary flex items-center gap-2">
+                          <Sparkles className="h-4 w-4 text-t-secondary" />
+                          Executive Diagnostic Narrative
+                        </h4>
+                        <span className="px-2.5 py-0.5 rounded-full bg-surface-1 border border-b-subtle text-t-secondary text-[11px] font-mono font-semibold">
+                          Target: {rootCauseOutput.target_metric}
+                        </span>
+                      </div>
+
+                      <div className="space-y-3 text-xs leading-relaxed text-t-secondary">
+                        <p>
+                          <strong className="text-t-primary">Macro Overview:</strong> {rootCauseOutput.narrative.what_happened}
+                        </p>
+                        <p>
+                          <strong className="text-t-primary">Statistical Attribution:</strong> {rootCauseOutput.narrative.why_it_happened}
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-b-subtle">
+                        <h5 className="text-xs font-semibold text-t-primary flex items-center gap-1.5 mb-2">
+                          <Lightbulb className="h-3.5 w-3.5 text-t-secondary" />
+                          Strategic Recommendations
+                        </h5>
+                        <ul className="space-y-1.5 text-xs text-t-secondary">
+                          {rootCauseOutput.narrative.recommended_interventions.map((rec, i) => (
+                            <li key={i} className="flex items-start gap-2">
+                              <span className="text-t-primary font-bold font-mono">0{i + 1}.</span>
+                              <span>{rec}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    {/* Key Drivers Ranking */}
+                    <div>
+                      <h4 className="text-xs font-semibold text-t-primary mb-3">
+                        Key Statistical Drivers (Feature Importance)
+                      </h4>
+                      <div className="space-y-3">
+                        {rootCauseOutput.drivers.map((driver) => (
+                          <div
+                            key={driver.feature}
+                            className="p-4 rounded-xl bg-surface-2 border border-b-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                          >
+                            <div className="space-y-1 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-t-primary">{driver.feature}</span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-surface-1 border border-b-subtle text-t-secondary">
+                                  {driver.impact_direction === "positive" ? (
+                                    <TrendingUp className="h-3 w-3 text-accent-cool" />
+                                  ) : (
+                                    <TrendingDown className="h-3 w-3 text-accent-warm" />
+                                  )}
+                                  {driver.impact_direction} correlation
+                                </span>
+                              </div>
+                              <p className="text-t-secondary text-[11px]">{driver.description}</p>
+                            </div>
+
+                            <div className="sm:w-44 shrink-0 flex items-center gap-3">
+                              <div className="flex-1 bg-surface-1 border border-b-subtle h-2 rounded-full overflow-hidden">
+                                <div
+                                  className="bg-accent-cool h-full rounded-full"
+                                  style={{ width: `${driver.importance_score}%` }}
+                                />
+                              </div>
+                              <span className="font-mono font-bold text-t-primary text-xs w-12 text-right">
+                                {driver.importance_score}%
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Cohort Divergence Analysis */}
+                    {rootCauseOutput.cohorts.length > 0 && (
+                      <div>
+                        <h4 className="text-xs font-semibold text-t-primary mb-3">
+                          Cohort Performance Divergence
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                          {rootCauseOutput.cohorts.map((cohort, idx) => (
+                            <div
+                              key={idx}
+                              className="p-3.5 rounded-xl bg-surface-2 border border-b-subtle space-y-1.5"
+                            >
+                              <div className="flex items-center justify-between font-mono">
+                                <span className="font-bold text-t-primary truncate">{cohort.cohort_name}</span>
+                                <span className="text-[11px] text-t-secondary">n = {cohort.sample_size}</span>
+                              </div>
+                              <div className="text-xs font-mono text-t-secondary">
+                                Avg: <span className="font-bold text-t-primary">{cohort.metrics.avg?.toLocaleString()}</span> • Total: {cohort.metrics.total?.toLocaleString()}
+                              </div>
+                              <p className="text-[11px] text-t-secondary">
+                                {cohort.key_differentiators[0]}
+                              </p>
                             </div>
                           ))}
                         </div>
