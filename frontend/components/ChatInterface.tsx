@@ -23,6 +23,7 @@ import {
   FileText
 } from "lucide-react";
 import { useAuth } from "./AuthContext";
+import { LogoMark } from "./LogoMark";
 import { ThemeToggle } from "./ThemeToggle";
 import { api, RecommendedQuestion } from "../lib/api";
 import { API_BASE } from "../lib/config";
@@ -683,7 +684,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             variants={safeVariants(staggerItem, prefersReduced)}
             className="flex items-center gap-2 text-micro text-t-secondary font-mono tracking-wide"
           >
-            <img src="/logo.png" alt="Logo" className="h-4 w-4 rounded object-contain opacity-80" />
+            <LogoMark size={16} state={isStreaming ? "think" : "idle"} />
             <span>{timeGreeting}</span>
             <span className="opacity-40">•</span>
             <span>{currentTimeStr}</span>

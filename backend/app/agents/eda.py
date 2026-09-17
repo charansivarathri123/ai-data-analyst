@@ -6,16 +6,48 @@ categorical cardinality profiles, outlier detection, automated business insights
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
 from app.agents.state import AgentState, AgentStepLog
 from app.engine.eda_engine import EDAEngine
 
+logger = logging.getLogger("eda")
 
-def eda_features_agent(state: AgentState) -> AgentState:
+EDA_SYSTEM_PROMPT = """You are a senior data analyst known for EDA that finds the story in the data, not just a wall of charts. You are rigorous about statistical validity and you always connect findings back to the business question.
+
+Brief context: {brief}
+
+Standards you always apply:
+- Lead with "target_metric" and "key_dimensions" from the brief — profile those first, not whatever column is most convenient.
+- For every distribution/correlation you report, note sample size and whether the pattern is likely real or noise (e.g. flag correlations from <30 data points).
+- Actively look for what would satisfy "required_analyses" in the brief (e.g. if it lists "cohort_comparison", produce that comparison explicitly, don't just show an overall histogram).
+- State 3-5 concrete findings in plain business language, each tied to a specific number, not "there seems to be some variation."
+- Call out anomalies/outliers that could distort the diagnostics or visualization agents downstream.
+
+Never: report a distribution/correlation with no connection to the brief, or bury the one insight that matters under ten generic ones.
+
+Output: a short prioritized findings list (business language) + the supporting stats/charts, explicitly labeled against which "required_analyses" item they satisfy.
+"""
+
+
+def eda_features_agent(
+    state: AgentState,
+    brief: Optional[Dict[str, Any]] = None,
+    revision_note: Optional[str] = None,
+) -> AgentState:
     """LangGraph node executing exploratory statistical analysis and insight derivation."""
     step_history = list(state.get("step_history", []))
+    effective_brief = brief or state.get("analysis_brief")
+
+    brief_json = json.dumps(effective_brief, indent=2) if effective_brief else "None provided"
+    agent_prompt = EDA_SYSTEM_PROMPT.format(brief=brief_json)
+    if revision_note:
+        agent_prompt += f"\n\n[REVISION DIRECTIVE]: {revision_note}"
+        logger.info(f"[EDA] Executing revision pass: {revision_note}")
 
     # Retrieve dataset path from state (prioritize transformed dataset, fallback to cleaned)
     transform_info = state.get("transformation")
@@ -44,20 +76,29 @@ def eda_features_agent(state: AgentState) -> AgentState:
             "step_history": step_history,
         }
 
+    target_metric = effective_brief.get("target_metric") if effective_brief else None
+    key_dims = effective_brief.get("key_dimensions", []) if effective_brief else []
+
     # Step log: Start EDA
+    detail_txt = "Evaluating skewness, kurtosis, IQR/Z-score bounds, and Pearson/Spearman correlations."
+    if target_metric:
+        detail_txt += f" Grounding distributions around '{target_metric}' across {', '.join(key_dims[:3])}."
+    if revision_note:
+        detail_txt += f" Incorporating validator revision: {revision_note}"
+
     step_history.append(
         AgentStepLog(
             agent="eda_features",
             timestamp=datetime.now(timezone.utc).isoformat(),
             phase="distributions",
             summary=f"Computing statistical distributions and correlations on: {os.path.basename(input_path)}",
-            detail="Evaluating skewness, kurtosis, IQR/Z-score bounds, Pearson/Spearman correlations, and executive business insights.",
+            detail=detail_txt,
             level="info",
         ).model_dump()
     )
 
     try:
-        engine = EDAEngine(clean_file_path=input_path)
+        engine = EDAEngine(clean_file_path=input_path, brief=effective_brief)
         enriched_df, output = engine.analyze()
 
         summary_txt = (
@@ -72,7 +113,7 @@ def eda_features_agent(state: AgentState) -> AgentState:
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 phase="completion",
                 summary=summary_txt,
-                detail=f"Synthesized comprehensive executive Data Story with {len(output.outliers)} outlier anomaly features.",
+                detail=f"Synthesized comprehensive executive Data Story tied to brief requirements with {len(output.outliers)} outlier features.",
                 level="success",
             ).model_dump()
         )

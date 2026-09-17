@@ -265,6 +265,73 @@ samp {
 }
 
 /* =========================================================================
+   DataAnalyst.Ai Brand Mark & Wordmark Styles
+   ========================================================================= */
+
+.brand-mark .b1 { fill: #5C7078; transition: transform 0.5s cubic-bezier(.22,1,.36,1); }
+.brand-mark .b2 { fill: var(--accent-warm, #E9A23B); transition: transform 0.5s cubic-bezier(.22,1,.36,1); }
+.brand-mark .b3 { fill: #5C7078; transition: transform 0.5s cubic-bezier(.22,1,.36,1); }
+.brand-mark .dot { fill: var(--accent-cool, #7FC6A4); }
+.brand-mark .ring { stroke: var(--accent-cool, #7FC6A4); }
+
+.light .brand-mark .b1,
+.light .brand-mark .b3 { fill: #B8A98A; }
+.light .brand-mark .b2 { fill: #C97A2E; }
+.light .brand-mark .dot { fill: #3F8F68; }
+.light .brand-mark .ring { stroke: #3F8F68; }
+
+/* Wordmark hover equalizer effect */
+.brand-lockup:hover .brand-mark .b1 { transform: translateY(-1px); }
+.brand-lockup:hover .brand-mark .b2 { transform: translateY(-3px); }
+.brand-lockup:hover .brand-mark .b3 { transform: translateY(-1.5px); }
+
+/* Animated states */
+/* Idle: gentle breathing dot */
+.brand-mark.idle .dot {
+  animation: mark-breathe 2.6s ease-in-out infinite;
+  transform-origin: 22px 7px;
+}
+@keyframes mark-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+/* Thinking: bars pulse in sequence, dot orbits to settle */
+.brand-mark.think .b1 { animation: mark-barpulse 1.4s ease-in-out infinite; }
+.brand-mark.think .b2 { animation: mark-barpulse 1.4s ease-in-out infinite 0.18s; }
+.brand-mark.think .b3 { animation: mark-barpulse 1.4s ease-in-out infinite 0.36s; }
+@keyframes mark-barpulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+.brand-mark.think .dot {
+  animation: mark-orbit 1.4s cubic-bezier(.22,1,.36,1) infinite;
+}
+@keyframes mark-orbit {
+  0% { transform: translate(-9px, 0); }
+  33% { transform: translate(0, -2px); }
+  66% { transform: translate(9px, -4px); }
+  100% { transform: translate(-9px, 0); }
+}
+
+/* Success: ring draws, dot settles */
+.brand-mark.done .ring {
+  stroke-dasharray: 44;
+  stroke-dashoffset: 44;
+  animation: mark-draw 0.5s cubic-bezier(.22,1,.36,1) forwards;
+}
+@keyframes mark-draw {
+  to { stroke-dashoffset: 0; }
+}
+.brand-mark.done .dot {
+  animation: mark-settle 0.4s cubic-bezier(.22,1,.36,1) both;
+}
+@keyframes mark-settle {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* =========================================================================
    Reduced Motion Global Guard
    ========================================================================= */
 

@@ -27,8 +27,9 @@ from app.agents.state import (
 class EDAEngine:
     """Analytical engine computing exploratory distributions, cross-tabulations, and business insights."""
 
-    def __init__(self, clean_file_path: str):
+    def __init__(self, clean_file_path: str, brief: Optional[Dict[str, Any]] = None):
         self.clean_file_path = clean_file_path
+        self.brief = brief or {}
         if not os.path.exists(self.clean_file_path):
             raise FileNotFoundError(f"Cleaned dataset file not found: {self.clean_file_path}")
 

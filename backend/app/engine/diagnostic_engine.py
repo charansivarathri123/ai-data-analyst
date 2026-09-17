@@ -39,12 +39,14 @@ class DiagnosticEngine:
         self,
         target_metric: Optional[str] = None,
         business_prompt: Optional[str] = None,
+        brief: Optional[Dict[str, Any]] = None,
     ) -> RootCauseOutput:
         """Executes root-cause diagnosis, isolating drivers and synthesizing narrative."""
         df = self.load_clean_df()
 
-        # 1. Resolve Target Metric
-        resolved_target = self._resolve_target_metric(df, target_metric)
+        # 1. Resolve Target Metric (prioritizing brief)
+        focal_metric = (brief.get("target_metric") if brief else None) or target_metric
+        resolved_target = self._resolve_target_metric(df, focal_metric)
 
         # 2. Isolate Key Statistical Drivers using Tree Feature Importance
         drivers = self._isolate_key_drivers(df, resolved_target)
@@ -59,6 +61,7 @@ class DiagnosticEngine:
             drivers=drivers,
             cohorts=cohorts,
             user_prompt=business_prompt or "",
+            brief=brief,
         )
 
         return RootCauseOutput(
@@ -200,6 +203,7 @@ class DiagnosticEngine:
         drivers: List[KeyDriver],
         cohorts: List[CohortComparison],
         user_prompt: str,
+        brief: Optional[Dict[str, Any]] = None,
     ) -> NarrativeSummary:
         """Synthesizes structured business insights into What Happened, Why, and Recommendations."""
         total_val = float(df[target_metric].sum() or 0.0)
@@ -211,6 +215,8 @@ class DiagnosticEngine:
             f"Analysis of '{target_metric}' across {df.height} records indicates an overall mean of {mean_val:,.2f} "
             f"(total volume: {total_val:,.2f}). Peak performance is led by {top_cohort}."
         )
+        if brief and brief.get("restated_goal"):
+            what_txt = f"{brief.get('restated_goal')}. " + what_txt
 
         # Why it happened
         if drivers:
@@ -225,6 +231,8 @@ class DiagnosticEngine:
                     f"A secondary influence is exerted by '{secondary_driver.feature}' "
                     f"({secondary_driver.importance_score}% importance weight)."
                 )
+            if brief and brief.get("success_criteria"):
+                why_txt += f" Grounded validation against criteria: {brief.get('success_criteria')}."
         else:
             why_txt = "Variance across records is evenly distributed with no singular feature dominating performance."
 

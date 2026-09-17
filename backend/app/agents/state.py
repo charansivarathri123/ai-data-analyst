@@ -450,14 +450,68 @@ class PowerBIArchitectOutput(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 10. LangGraph Master State Schema (TypedDict & Pydantic Master)
+# 10. Agent 0: Orchestrator & Validator State
+# ---------------------------------------------------------------------------
+
+class ChartRequirement(BaseModel):
+    type: str = Field(description="Chart type (e.g., 'line', 'waterfall', 'bar', 'scatter', 'box')")
+    x: Optional[str] = Field(default=None, description="X-axis column or dimension")
+    y: Optional[str] = Field(default=None, description="Y-axis column or metric")
+    split_by: Optional[str] = Field(default=None, description="Dimension to group or split series by")
+    purpose: Optional[str] = Field(default=None, description="Analytical purpose of the chart")
+
+
+class AnalysisBrief(BaseModel):
+    """Structured analysis brief emitted by Agent 0 (Hidden Orchestrator)."""
+
+    problem_type: Literal[
+        "root_cause_diagnostic",
+        "trend_analysis",
+        "comparative",
+        "predictive",
+        "descriptive",
+    ] = "descriptive"
+    restated_goal: str = Field(description="Clarified business goal grounded in the dataset")
+    target_metric: str = Field(description="Primary focal metric column name")
+    key_dimensions: List[str] = Field(default_factory=list, description="Key grouping or slicing columns")
+    required_analyses: List[str] = Field(
+        default_factory=list,
+        description="Analyses required (e.g., 'trend_over_time', 'cohort_comparison', 'driver_attribution')",
+    )
+    chart_requirements: List[ChartRequirement] = Field(
+        default_factory=list, description="Explicit chart specifications for Visualizer"
+    )
+    columns_in_scope: List[str] = Field(
+        default_factory=list, description="Columns that downstream agents must prioritize"
+    )
+    columns_out_of_scope: List[str] = Field(
+        default_factory=list, description="Columns to ignore or deprioritize"
+    )
+    success_criteria: str = Field(
+        description="Plain-language rubric used by the validator pass at the end"
+    )
+    notes_for_downstream_agents: str = Field(
+        default="", description="Guiding constraints and directives for feature engineering and downstream agents"
+    )
+
+
+class ValidationVerdict(BaseModel):
+    """Result of the end-of-pipeline validator inspection."""
+
+    passed: bool
+    revise_agent: Optional[str] = None
+    revision_note: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# 11. LangGraph Master State Schema (TypedDict & Pydantic Master)
 # ---------------------------------------------------------------------------
 
 class AgentState(TypedDict, total=False):
     """LangGraph execution state machine schema.
 
     Enables state persistence, checkpointing, and cyclic retry transitions
-    across the 7 sequential agents.
+    across the 7 sequential agents and hidden orchestrator.
     """
 
     session_id: str
@@ -473,6 +527,12 @@ class AgentState(TypedDict, total=False):
     # Ingestion State
     dataset: Optional[Dict[str, Any]]
 
+    # Agent 0: Hidden Orchestrator State
+    analysis_brief: Optional[Dict[str, Any]]
+    validation_verdict: Optional[Dict[str, Any]]
+    validation_attempts: int
+    revision_notes: Optional[Dict[str, str]]
+
     # 7 Agent Outputs
     cleaning: Optional[Dict[str, Any]]
     transformation: Optional[Dict[str, Any]]
@@ -485,3 +545,4 @@ class AgentState(TypedDict, total=False):
     # Real-time Telemetry & Reflection
     step_history: List[Dict[str, Any]]
     retry_count: int
+

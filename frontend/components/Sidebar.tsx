@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import { InfoModalType } from "./InfoModals";
+import { LogoMark } from "./LogoMark";
 import {
   fadeUp,
   scaleIn,
@@ -139,23 +140,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         {/* Top Header: Brand Name + Logo */}
         <div className="flex items-center justify-between px-4 pt-5 pb-3">
-          <div className="flex items-center gap-3 overflow-hidden">
-            <img
-              src="/logo.png"
-              alt="Logo"
-              className="h-8 w-8 shrink-0 rounded-lg object-contain"
-            />
+          <div className="flex items-center gap-2.5 overflow-hidden">
+            <LogoMark size={32} state="idle" />
             <AnimatePresence>
               {!isCollapsed && (
-                <motion.span
+                <motion.div
                   initial={{ opacity: 0, width: 0 }}
                   animate={{ opacity: 1, width: "auto" }}
                   exit={{ opacity: 0, width: 0 }}
                   transition={{ duration: duration.fast }}
-                  className="font-bold text-base tracking-tight text-t-primary truncate whitespace-nowrap font-display"
+                  className="brand-lockup flex items-center tracking-tight text-base truncate whitespace-nowrap"
                 >
-                  DataAnalyst.Ai
-                </motion.span>
+                  <span className="font-semibold text-t-primary">DataAnalyst</span>
+                  <span className="font-medium text-t-secondary opacity-75">.Ai</span>
+                </motion.div>
               )}
             </AnimatePresence>
           </div>

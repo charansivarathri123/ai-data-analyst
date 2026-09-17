@@ -52,6 +52,7 @@ import {
   PowerBIEmpty 
 } from "@/components/dashboard/EmptyStates";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
+import { LogoMark } from "@/components/LogoMark";
 
 import { api, CleanDatasetResult, UploadDatasetResult } from "@/lib/api";
 import {
@@ -563,14 +564,24 @@ export default function DashboardPage() {
             </Link>
             <div className="h-4 w-px bg-b-subtle" />
             <div className="flex items-center gap-2.5">
-              <img
-                src="/logo.png"
-                alt="Logo"
-                className="h-7 w-7 shrink-0 rounded-lg object-contain"
+              <LogoMark
+                size={28}
+                state={
+                  pipelineStatus !== "idle" && pipelineStatus !== "completed" && pipelineStatus !== "failed"
+                    ? "think"
+                    : pipelineStatus === "completed"
+                    ? "done"
+                    : "idle"
+                }
               />
-              <h1 className="text-sm font-semibold text-t-primary">
-                <span className="font-mono text-t-primary font-bold">Workspace</span>
-              </h1>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm tracking-tight text-t-primary">
+                  DataAnalyst<span className="font-medium text-t-secondary opacity-75">.Ai</span>
+                </span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-surface-2 border border-b-subtle text-t-secondary font-mono">
+                  Workspace
+                </span>
+              </div>
             </div>
           </div>
         </div>

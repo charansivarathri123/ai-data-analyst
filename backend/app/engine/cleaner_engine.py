@@ -28,9 +28,15 @@ from app.agents.state import (
 class DataCleanerEngine:
     """Vectorized cleaning engine executing multi-step quality remediation on raw tabular data."""
 
-    def __init__(self, raw_file_path: str, output_dir: str = "./data/cleaned"):
+    def __init__(
+        self,
+        raw_file_path: str,
+        output_dir: str = "./data/cleaned",
+        columns_in_scope: Optional[List[str]] = None,
+    ):
         self.raw_file_path = raw_file_path
         self.output_dir = output_dir
+        self.columns_in_scope = [c.lower() for c in (columns_in_scope or [])]
         os.makedirs(self.output_dir, exist_ok=True)
         self.audit_trail: List[AuditRuleLog] = []
 

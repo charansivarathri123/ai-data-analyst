@@ -41,15 +41,19 @@ class PowerBIEngine:
         dataset_id: str,
         target_metric: Optional[str] = None,
         top_drivers: Optional[List[str]] = None,
+        brief: Optional[Dict[str, Any]] = None,
     ) -> PowerBIArchitectOutput:
         """Constructs Star Schema, authors DAX measures, and builds the downloadable PBIP bundle."""
         df = self.load_df()
+
+        effective_target = (brief.get("target_metric") if brief else None) or target_metric or "gross_revenue"
+        key_dims = (brief.get("key_dimensions") if brief else None) or []
 
         # 1. Separate Fact and Dimensions for Star Schema
         star_schema = self._build_star_schema(df)
 
         # 2. Author Syntactically Verified DAX Measures
-        dax_catalog = self._author_dax_measures(df, target_metric or "gross_revenue")
+        dax_catalog = self._author_dax_measures(df, effective_target)
 
         # 3. Formulate Visual Specifications
         visual_specs = self._formulate_visual_specs(star_schema, dax_catalog, top_drivers or [])

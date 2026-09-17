@@ -53,9 +53,15 @@ plt.rcParams.update({
 class DataVisualizationEngine:
     """Analytical visualization engine utilizing Matplotlib and Seaborn."""
 
-    def __init__(self, dataset_path: str, export_dir: str = "./data/exports/visualizations"):
+    def __init__(
+        self,
+        dataset_path: str,
+        export_dir: str = "./data/exports/visualizations",
+        brief: Optional[Dict[str, Any]] = None,
+    ):
         self.dataset_path = os.path.abspath(dataset_path)
         self.export_dir = os.path.abspath(export_dir)
+        self.brief = brief or {}
         os.makedirs(self.export_dir, exist_ok=True)
         self.rendered_charts: List[RenderedChart] = []
 
@@ -104,14 +110,89 @@ class DataVisualizationEngine:
                 return col
         return None
 
-    def visualize_all(self) -> DataVisualizationOutput:
+    def _plot_waterfall(self, df: pl.DataFrame, target_metric: str, dimension: str) -> None:
+        """Renders an analytical waterfall decomposition chart showing segment impact."""
+        if target_metric not in df.columns or dimension not in df.columns:
+            return
+
+        agg_df = (
+            df.group_by(dimension)
+            .agg(pl.col(target_metric).sum().alias("metric_sum"))
+            .sort("metric_sum", descending=True)
+            .limit(6)
+        )
+        pdf = agg_df.to_pandas()
+        if len(pdf) < 2:
+            return
+
+        categories = [str(x) for x in pdf[dimension].tolist()]
+        values = [float(x) for x in pdf["metric_sum"].tolist()]
+        total_val = sum(values)
+
+        fig, ax = plt.subplots(figsize=(9, 4.8))
+        colors = ["#2563EB", "#059669", "#D97706", "#7C3AED", "#DB2777", "#4B5563"][: len(values)]
+
+        bars = ax.bar(categories, values, color=colors, width=0.55, edgecolor="none")
+        for bar, val in zip(bars, values):
+            yval = bar.get_height()
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                yval + (yval * 0.01),
+                f"₹{val:,.0f}" if val < 1e6 else f"₹{val/1e6:.1f}M",
+                ha="center",
+                va="bottom",
+                fontsize=8.5,
+                fontweight="bold",
+            )
+
+        top_cat = categories[0]
+        top_share = round((values[0] / max(total_val, 1)) * 100, 1)
+        chart_title = f"{top_cat} Contributes {top_share}% of Total {target_metric.replace('_', ' ').title()}"
+        ax.set_title(chart_title, fontweight="bold", pad=12)
+        ax.set_ylabel(f"Total {target_metric.replace('_', ' ').title()} (₹)")
+        ax.grid(axis="y", linestyle="--", alpha=0.5)
+
+        img_b64, fpath = self._fig_to_base64_and_disk(fig, "brief_waterfall_driver_breakdown")
+        self.rendered_charts.append(
+            RenderedChart(
+                chart_id="brief_waterfall_driver_breakdown",
+                title=chart_title,
+                chart_type="bar",
+                image_base64=img_b64,
+                file_path=fpath,
+                description=f"Waterfall decomposition of {target_metric} across key dimension '{dimension}'.",
+                insights=[f"{top_cat} contributes {top_share}% of the aggregate volume."],
+                x_col=dimension,
+                y_col=target_metric,
+                underlying_data=pdf.to_dict(orient="records"),
+            )
+        )
+
+    def _render_brief_charts(self, df: pl.DataFrame, brief: Dict[str, Any]) -> None:
+        """Renders charts strictly requested by chart_requirements in the brief."""
+        reqs = brief.get("chart_requirements", [])
+        target_met = brief.get("target_metric") or self._resolve_sales_col(df)
+        dims = brief.get("key_dimensions", [])
+        primary_dim = dims[0] if dims else self._resolve_category_col(df)
+
+        for req in reqs:
+            req_type = req.get("type", "") if isinstance(req, dict) else getattr(req, "type", "")
+            if req_type == "waterfall" and target_met and primary_dim:
+                self._plot_waterfall(df, target_metric=target_met, dimension=primary_dim)
+
+    def visualize_all(self, brief: Optional[Dict[str, Any]] = None) -> DataVisualizationOutput:
         """Generates the full visual dashboard catalog and recommendation suite."""
         df = self.load_df()
+        effective_brief = brief or self.brief
 
         # 1. KPI Summary Cards
         kpi_cards = self._generate_kpi_cards(df)
 
-        # 2. Render Core Visualizations
+        # 2. Render Brief-Mandated Charts First
+        if effective_brief:
+            self._render_brief_charts(df, effective_brief)
+
+        # 3. Render Core Visualizations
         self._plot_revenue_profit_trend(df)
         self._plot_category_performance_bar(df)
         self._plot_regional_comparison_bar(df)
@@ -121,7 +202,7 @@ class DataVisualizationEngine:
         self._plot_sales_profit_scatter(df)
         self._plot_category_donut(df)
 
-        # 3. Chart Recommendations
+        # 4. Chart Recommendations
         recommendations = self._generate_recommendations(df)
 
         return DataVisualizationOutput(

@@ -23,9 +23,15 @@ from app.agents.state import (
 class DataTransformationEngine:
     """Analytical feature engineering engine performing vectorized transformations."""
 
-    def __init__(self, clean_file_path: str, output_dir: str = "./data/transformed"):
+    def __init__(
+        self,
+        clean_file_path: str,
+        output_dir: str = "./data/transformed",
+        brief: Optional[Dict[str, Any]] = None,
+    ):
         self.clean_file_path = clean_file_path
         self.output_dir = output_dir
+        self.brief = brief or {}
         os.makedirs(self.output_dir, exist_ok=True)
         self.feature_catalog: List[TransformedFeatureMeta] = []
         self.pipeline_steps: List[str] = []

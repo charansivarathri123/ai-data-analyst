@@ -15,6 +15,7 @@ import {
   ChevronRight
 } from "lucide-react";
 import { useAuth } from "./AuthContext";
+import { LogoMark } from "./LogoMark";
 import { API_BASE } from "../lib/config";
 import { 
   errorShake, 
@@ -411,9 +412,8 @@ export const AuthModal: React.FC = () => {
           <div className="absolute inset-0 bg-dot-grid opacity-35 pointer-events-none" />
 
           <div>
-            <div className="flex items-center gap-2.5 mb-6">
-              <img src="/logo.png" alt="DataAnalyst.Ai" className="h-7 w-7 rounded-lg object-contain" />
-              <span className="font-bold text-sm text-t-primary font-display">DataAnalyst.Ai</span>
+            <div className="mb-6">
+              <LogoMark size={28} state="idle" withWordmark />
             </div>
 
             <h2 className="text-xl font-bold font-display text-t-primary leading-tight tracking-tight">

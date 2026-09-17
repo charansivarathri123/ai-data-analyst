@@ -137,8 +137,9 @@ LIMIT 20;""",
         },
     ]
 
-    def __init__(self, dataset_path: str):
+    def __init__(self, dataset_path: str, brief: Optional[Dict[str, Any]] = None):
         self.dataset_path = os.path.abspath(dataset_path)
+        self.brief = brief or {}
         self.con = duckdb.connect(database=":memory:")
         self._register_tables()
 
@@ -352,6 +353,50 @@ LIMIT 20;""",
         schema = self.inspect_schema("analytics_data")
         executed_results: List[SQLQueryResult] = []
         templates: List[SQLTemplate] = []
+
+        # Ground query dynamically from brief if provided
+        target_met = self.brief.get("target_metric")
+        key_dims = self.brief.get("key_dimensions", [])
+        avail_cols = [c.name.lower() for c in schema.columns]
+
+        if target_met and target_met.lower() in avail_cols and key_dims:
+            primary_dim = key_dims[0] if key_dims[0].lower() in avail_cols else None
+            sec_dim = key_dims[1] if len(key_dims) > 1 and key_dims[1].lower() in avail_cols else None
+
+            if primary_dim:
+                group_cols = [primary_dim] + ([sec_dim] if sec_dim else [])
+                grain_desc = f"One row per {' and '.join(group_cols)}"
+                brief_sql = f"""/*
+ * Analysis Brief Focal Query
+ * Grain: {grain_desc}
+ * Target Metric: {target_met}
+ */
+WITH aggregated_metrics AS (
+    SELECT
+        {', '.join(group_cols)},
+        COUNT(*) AS row_count,
+        ROUND(SUM(TRY_CAST({target_met} AS DOUBLE)), 2) AS total_{target_met},
+        ROUND(AVG(TRY_CAST({target_met} AS DOUBLE)), 2) AS avg_{target_met}
+    FROM analytics_data
+    WHERE {primary_dim} IS NOT NULL
+    GROUP BY {', '.join(str(i+1) for i in range(len(group_cols)))}
+)
+SELECT * FROM aggregated_metrics
+ORDER BY total_{target_met} DESC
+LIMIT 20;"""
+                brief_tmpl = SQLTemplate(
+                    template_id="brief_target_metric_decomposition",
+                    name=f"Brief Focus: {target_met.replace('_', ' ').title()} by {primary_dim.replace('_', ' ').title()}",
+                    business_question=f"How is '{target_met}' distributed across key dimension '{primary_dim}'? (Grain: {grain_desc})",
+                    sql_query=brief_sql,
+                    category="Brief Targeted Analytics",
+                )
+                templates.append(brief_tmpl)
+                try:
+                    res = self.execute_query(sql=brief_sql, query_name=brief_tmpl.name, limit=50)
+                    executed_results.append(res)
+                except Exception as e:
+                    print(f"[WARN] Failed to run brief query: {e}")
 
         for tmpl in self.DEFAULT_TEMPLATES:
             templates.append(
